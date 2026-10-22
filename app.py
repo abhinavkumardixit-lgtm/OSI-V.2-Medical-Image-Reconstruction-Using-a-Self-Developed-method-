@@ -922,7 +922,7 @@ st.markdown("<br/>", unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align: center; font-size: 0.72rem; color: #64748b; font-family: 'JetBrains Mono', monospace;">
-        TME-FUSE Research Framework • Open Source AI Hackathon • Reference: Dixit (August 2026, 10.5281/zenodo.21849798)
+        TME-FUSE Research Framework • Open Source AI Hackathon • Project DOI: 10.5281/zenodo.23578772 • Reference: Dixit (August 2026, 10.5281/zenodo.21849798)
     </div>
     """,
     unsafe_allow_html=True,

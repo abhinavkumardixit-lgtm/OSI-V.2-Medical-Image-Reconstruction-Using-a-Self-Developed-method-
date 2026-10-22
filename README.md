@@ -1,7 +1,8 @@
 # OSI: Norm-Clamped Geometric Fusion Framework for 3D mpMRI Brain Tumor Reconstruction & Spatial Modeling
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23578772.svg)](https://doi.org/10.5281/zenodo.23578772)
 [![Open Source AI Hackathon](https://img.shields.io/badge/Open%20Source%20AI-Hackathon%202026-blue)](https://github.com/abhinavkumardixit-lgtm/osi)
-[![Reference DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21849798-emerald)](https://doi.org/10.5281/zenodo.21849798)
+[![Reference Paper DOI](https://img.shields.io/badge/Paper%20DOI-10.5281%2Fzenodo.21849798-emerald)](https://doi.org/10.5281/zenodo.21849798)
 [![Pure CPU Optimized](https://img.shields.io/badge/Inference-Pure%20CPU%20AVX2%2FMKL-cyan)](https://pytorch.org/)
 [![Memory Budget](https://img.shields.io/badge/RAM-%3C%20200%20MB%20Budget-brightgreen)](#)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -294,6 +295,19 @@ To bridge the gap between mathematical proof-of-concept and genuine clinical dep
 
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.
 
+### Project DOI & Software Citation
+```bibtex
+@software{dixit2026osi,
+  title={OSI: Norm-Clamped Geometric Fusion Framework for 3D mpMRI Brain Tumor Reconstruction & Spatial Modeling},
+  author={Dixit, Abhinav Kumar},
+  year={2026},
+  publisher={Zenodo},
+  doi={10.5281/zenodo.23578772},
+  url={https://doi.org/10.5281/zenodo.23578772}
+}
+```
+
+### Mathematical Foundation Citation
 ```bibtex
 @article{dixit2026tmefuse,
   title={TME-FUSE: A Norm-Clamped Geometric Fusion Framework for Correcting Rotationally Biased Volumetric Cell Graphs},
