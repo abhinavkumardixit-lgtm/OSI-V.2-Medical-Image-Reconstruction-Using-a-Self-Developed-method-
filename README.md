@@ -19,7 +19,7 @@ Medical brain MRI volumetric data (such as multiparametric mpMRI scans: **T1, T1
 **OSI / TME-FUSE** establishes a two-stage hybrid framework:
 1. **3D CNN Encoder** with hierarchical multi-scale feature downsampling (64 -> 32 -> 16 -> 8).
 2. **Norm-Clamped $E(3)$-Equivariant Graph Neural Network (EGNN)** operating as an active geometric correction engine, governed strictly by a $1$-Lipschitz radial norm-clamping operator $\Pi_{c, \epsilon}$.
-3. **BioCLIP Cross-Modal Conditioning Bridge** injecting 512-dim clinical prompt embeddings (e.g. radiological notes on necrotic core or peritumoral edema) into the latent geometric tokens.
+3. **Clinical Text Encoder & Additive Prompt Projection Bridge** injecting 512-dim clinical prompt embeddings (e.g. radiological notes on necrotic core or peritumoral edema) into the latent geometric tokens.
 4. **3D ConvTranspose Decoder** splatting features back into isotropic 3D voxel space with skip connections.
 5. **Interactive 3D WebGL Isosurface Engine** reconstructing brain cortex envelope, active tumor core, and peritumoral edema with orthogonal neuronavigation.
 
@@ -40,7 +40,7 @@ flowchart TD
 
     subgraph Fusion ["4. Norm-Clamped Equivariant & Text Fusion"]
         E["Norm-Clamped EGNN Stack (L=3)<br/>c_max = 2.0 um | K <= 32 Neighbors<br/>Theorem 7 Bound: Delta x <= 6.0 um"]
-        F["BioCLIP Cross-Modal Attention<br/>512-dim Clinical Prompt Embedding<br/>Radiological Margin Guidance"]
+        F["Clinical Text Encoder & Additive Prompt Projection<br/>512-dim Clinical Prompt Embedding<br/>Radiological Margin Guidance"]
         G["Fused Geometric State Vector<br/>Shape: (1, 512, 128)"]
     end
 
@@ -108,32 +108,36 @@ The model is trained on **55 real patient cases** from the **MICCAI BraTS 2023 C
 | **Objective Loss** | — | 0.01978 | **0.01672** | Monotonic descent |
 | **Reconstruction PSNR** | 24.44 dB | 24.27 dB | **25.20 dB** | **+0.76 dB gain over input baseline** |
 | **Composite Recon Accuracy** | — | 97.66% | **98.01%** | Custom composite metric: $0.5 \times (1 - \text{MAE}) + 0.5 \times \text{Lesion Concordance}$ |
-| **Cohort Mean Max Displacement** | 0.0 μm | 1.927 μm | **2.021 μm** (peak: **2.200 μm**) | $\le 6.0\,\mu\text{m}$ (**Theorem 7: 100% PASS**) |
+| **Cohort Mean Max Displacement** | 0.0 μm | 1.927 μm | **2.022 μm** (peak: **2.207 μm**) | $\le 6.0\,\mu\text{m}$ (**Theorem 7: 100% PASS**) |
 | **Memory Working Set** | — | 142 MB | **156 MB** | $< 200\text{ MB}$ Budget |
+
+- **Reconstruction Objective Integrity (Commit `b6861dd` Audit):** Confirmed that commit `b6861dd` removed the clean-target input copy vulnerability in `train.py`. Training strictly evaluates loss between network reconstruction $\hat{y} = f_\theta(x_{\text{degraded}})$ and clean ground-truth reference $y_{\text{target}}$, preventing trivial identity shortcutting.
 
 ### 2. Out-of-Distribution Held-Out Patient Cohort (Strict Zero Data Leakage)
 Evaluated on **5 completely unseen patient cases** strictly isolated from training, validation, and preprocessing fitting:
 - Partition contract: [data_split.json](data_split.json) (Zero Data Leakage audited against checkpoint).
-- Task: Reconstruct full-resolution reference mpMRI from 2.78× effective accelerated k-space undersampled inputs (fixed deterministic seed per subject, standardized clinical prompt).
-- Ablation finding: Removing heuristic post-hoc keyword offsets improves both PSNR and SSIM across all held-out patients; text guidance operates stably via latent additive prompt projection.
+- Task: Reconstruct full-resolution reference mpMRI from 2.78× effective accelerated k-space undersampled inputs (fixed deterministic seed per subject `seed=42 + idx`, standardized clinical prompt *"Enhancing tumor margins with surrounding edema"*).
+- Conditioning Protocol: Standardized clinical prompt with restored keyword offsets (+0.05 T1ce, +0.04 FLAIR) matching checkpoint training.
 
-| Unseen Patient ID | Baseline Input PSNR | Model Recon PSNR | Reconstruction Gain ($\Delta\text{PSNR}$) | Baseline Input SSIM | Model Recon SSIM | SSIM Gain ($\Delta\text{SSIM}$) | Max Displacement | Theorem 7 Bound |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **BraTS-GLI-00060-000** | 24.09 dB | **24.36 dB** | **+0.27 dB** | 0.6773 | **0.7785** | **+0.1012** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00062-000** | 24.76 dB | **25.09 dB** | **+0.33 dB** | 0.6894 | **0.7908** | **+0.1014** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00064-000** | 24.38 dB | **24.75 dB** | **+0.37 dB** | 0.6856 | **0.7849** | **+0.0993** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00070-000** | 24.70 dB | **24.96 dB** | **+0.26 dB** | 0.7069 | **0.7934** | **+0.0865** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00071-000** | 23.82 dB | **24.19 dB** | **+0.37 dB** | 0.6877 | **0.7842** | **+0.0965** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **Held-Out Median [95% CI]** | 24.38 dB | **24.75 dB** | **+0.33 dB** `[+0.28, +0.36]` | 0.6877 | **0.7849** | **+0.0972** | **2.007 μm** | **100% PASS** |
+| Unseen Patient ID | Baseline Input PSNR | Model Recon PSNR | Reconstruction Gain ($\Delta\text{PSNR}$) | Foreground PSNR | Baseline Input SSIM | Model Recon SSIM | SSIM Gain ($\Delta\text{SSIM}$) | Max Displacement | Theorem 7 Bound |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **BraTS-GLI-00060-000** | 24.09 dB | **24.35 dB** | **+0.26 dB** | **21.87 dB** | 0.6773 | **0.7772** | **+0.1000** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00062-000** | 24.76 dB | **25.08 dB** | **+0.32 dB** | **22.33 dB** | 0.6894 | **0.7895** | **+0.1001** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00064-000** | 24.38 dB | **24.74 dB** | **+0.36 dB** | **22.40 dB** | 0.6856 | **0.7838** | **+0.0982** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00070-000** | 24.70 dB | **24.95 dB** | **+0.25 dB** | **22.19 dB** | 0.7069 | **0.7919** | **+0.0850** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00071-000** | 23.82 dB | **24.18 dB** | **+0.36 dB** | **21.72 dB** | 0.6877 | **0.7829** | **+0.0952** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **Held-Out Median [95% CI]** | 24.38 dB | **24.74 dB** | **+0.32 dB** `[+0.27, +0.35]` | **22.19 dB** `[21.87, 22.33]` | 0.6877 | **0.7838** | **+0.0982** `[+0.0901, +0.0997]` | **2.007 μm** | **100% PASS** |
+
+- **SSIM Gain Metric Definition:** The reported SSIM gain median (**+0.0982**) is the median of individual per-patient gains $\Delta\text{SSIM}_i = \text{SSIM}_i^{\text{model}} - \text{SSIM}_i^{\text{base}}$ (with 95% bootstrap CI `[+0.0901, +0.0997]`). The difference between cohort median reconstruction SSIM (0.7838) and cohort median baseline SSIM (0.6877) is **+0.0961** (under unmodulated ablation, per-patient median gain was **0.0993**).
 
 ### 3. Full Cohort Benchmark (All 60 Cases)
-Across all 60 cases (55 training + 5 held-out) evaluated via `benchmark_full_cohort.py`:
-- **PSNR:** Baseline Input Mean: 24.24 dB $\to$ Model Reconstruction Mean: **25.05 dB** (**+0.81 dB** average gain).
-- **Foreground-Only PSNR:** Mean **24.28 dB** (evaluating non-background tissue).
-- **Slice-Averaged SSIM (uniform 7×7 window):** Baseline Mean: 0.7392 $\to$ Model Reconstruction Mean: **0.7924** (**+0.0532** gain).
-- **True 3D Volumetric SSIM (3D uniform kernel):** Mean **0.8417**.
-- **Max Displacement:** Cohort Mean: **2.021 μm**, Cohort Peak: **2.200 μm** (100% of cases comply with Theorem 7 bound $\le 6.0\,\mu\text{m}$).
-- **Saturation Dynamics:** In early layers, ~58% of outer lattice boundary nodes experience gradient forces exceeding $c=2.0\,\mu\text{m}$ and clamp cleanly to $c$, producing identical 2.007 μm cumulative displacement across held-out subjects.
+Across all 60 cases (55 training + 5 held-out) evaluated via `benchmark_full_cohort.py` (per-patient audit log recorded in [benchmark_full_cohort_output.txt](benchmark_full_cohort_output.txt)):
+- **PSNR:** Baseline Input Mean: 24.35 dB $\to$ Model Reconstruction Mean: **25.27 dB** (**+0.92 dB** average gain; median **+0.63 dB**).
+- **Foreground-Only PSNR:** Mean **24.54 dB** (evaluating non-background tissue).
+- **Slice-Averaged SSIM (uniform 7×7 window):** Baseline Mean: 0.7374 $\to$ Model Reconstruction Mean: **0.7935** (**+0.0561** gain; median **+0.0452**).
+- **True 3D Volumetric SSIM (3D uniform kernel):** Mean **0.8435**.
+- **Max Displacement:** Cohort Mean: **2.022 μm**, Cohort Peak: **2.207 μm** (100% of cases comply with Theorem 7 bound $\le 6.0\,\mu\text{m}$).
+- **Saturation Dynamics (Empirically Documented in [benchmark_full_cohort_output.txt](benchmark_full_cohort_output.txt)):** In Layer 0 of the EGNN stack, an empirical mean of **58.9%** (median **58.8%**, held-out cases 58.0%–58.4%) of outer coordinate grid nodes experience gradient forces exceeding $c=2.0\,\mu\text{m}$ and clamp cleanly to $c$, producing identical 2.007 μm cumulative displacement across held-out subjects.
 
 ### 4. Synthetic Baseline Testing
 In addition to real clinical evaluation, the repository maintains an isolated synthetic test suite (`tests/test_synthetic_pipeline.py`) that operates on procedurally generated multi-tissue phantoms. This enables CI testing and architectural verification without requiring external clinical dataset downloads.
@@ -148,7 +152,7 @@ In addition to real clinical evaluation, the repository maintains an isolated sy
 ---
 
 ## ⚠️ Scientific Limitations & Dataset Availability
-1. **Identity-Baseline Comparison:** Because medical image reconstruction networks often risk learning a degenerate identity mapping, all benchmarks in this repository evaluate against the **unmodified degraded input baseline**. The model demonstrates verified gains ($\Delta\text{PSNR} = +0.33\text{ dB}$, $\Delta\text{SSIM} = +0.097$) over the input copy baseline on held-out patients.
+1. **Identity-Baseline Comparison:** Because medical image reconstruction networks often risk learning a degenerate identity mapping, all benchmarks in this repository evaluate against the **unmodified degraded input baseline**. The model demonstrates verified gains ($\Delta\text{PSNR} = +0.32\text{ dB}$, $\Delta\text{SSIM} = +0.098$) over the input copy baseline on held-out patients.
 2. **Acceleration Specification:** The acquisition protocol applies a nominal 4× phase-encoding stride with a fully sampled 16% ACS center, delivering an **effective acceleration factor of 2.78×** (23/64 lines retained, 35.9% k-space). An exact $4.0\times$ acceleration mode (16/64 lines) is also supported via `exact_acceleration=True` in `simulate_mri_undersampling`.
 3. **Dataset Acquisition:** Real clinical scans are derived from the MICCAI BraTS 2023 Glioma Challenge (`MedOtter/brats2023-gli-dataset`). Users can download the full cohort using `python download_brats_cohort.py` (or `python tme_fuse/download_real_data.py`). Missing clinical data is handled gracefully in unit tests with skips, while `python evaluate_clinical.py` explicitly validates file presence for audit-grade certification.
 

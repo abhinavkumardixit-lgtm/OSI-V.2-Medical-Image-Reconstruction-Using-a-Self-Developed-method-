@@ -17,7 +17,7 @@ def simulate_mri_undersampling(
     center_fraction: float = 0.16,
     exact_acceleration: bool = False,
     noise_sigma: float = 0.005,
-    seed: Optional[int] = 42,
+    seed: Optional[int] = None,
 ) -> torch.Tensor:
     """
     Simulates accelerated MRI acquisition via 3D Fourier k-space undersampling.
@@ -48,7 +48,7 @@ def simulate_mri_undersampling(
     B, C, D, H, W = tensor.shape
     device = tensor.device
 
-    # Set generator seed if provided for reproducible evaluation (defaults to 42)
+    # Set generator seed if provided for reproducible evaluation (defaults to None)
     if seed is not None:
         g = torch.Generator(device=device)
         g.manual_seed(seed)

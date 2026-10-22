@@ -1,5 +1,5 @@
 """
-Biomedical Text Encoder (BioCLIP Bridge) for TME-FUSE.
+Clinical Text Encoder (Additive Prompt Projection Bridge) for TME-FUSE.
 Provides dual-mode text embedding:
 1. Lightweight clinical semantic tokenizer & embedding projector with domain-specific
    lexicon (BraTS clinical descriptors, necrosis, enhancing margins, edema).

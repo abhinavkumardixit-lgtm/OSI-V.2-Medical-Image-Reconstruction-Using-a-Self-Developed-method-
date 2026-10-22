@@ -1,7 +1,7 @@
 """
 Self-Contained Synthetic Pipeline Test Suite.
 Validates end-to-end model execution, 4x MRI k-space degradation,
-BioCLIP conditioning, and Theorem 7 compliance using purely procedural
+clinical text encoder conditioning, and Theorem 7 compliance using purely procedural
 synthetic phantoms without requiring any real clinical datasets on disk.
 """
 
@@ -80,7 +80,7 @@ def test_synthetic_model_inference_and_theorem7(synthetic_model, synthetic_phant
     assert diag["egnn"]["max_cumulative_displacement_um"] <= 6.0
 
 
-def test_synthetic_bioclip_modulation(synthetic_model, synthetic_phantom):
+def test_synthetic_clinical_prompt_modulation(synthetic_model, synthetic_phantom):
     """Verifies cross-modal text prompt guidance modulates appropriate channel."""
     with torch.no_grad():
         recon_edema, _ = synthetic_model(synthetic_phantom, text_prompt="Massive peritumoral edema on FLAIR")

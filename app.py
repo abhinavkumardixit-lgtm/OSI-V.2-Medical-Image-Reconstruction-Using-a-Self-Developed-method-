@@ -379,10 +379,10 @@ with col_left:
         active_ch_idx = modality_idx_map[selected_modality_str]
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Clinical Prompt Injection (BioCLIP conditioning)
+    # Clinical Prompt Injection (Clinical Text Encoder / Additive Prompt Projection)
     with st.container():
         st.markdown('<div class="medical-card">', unsafe_allow_html=True)
-        st.markdown("<span class='metric-label'>Cross-Modal Prompt (BioCLIP)</span>", unsafe_allow_html=True)
+        st.markdown("<span class='metric-label'>Clinical Text Conditioning</span>", unsafe_allow_html=True)
         prompt_presets = [
             "Enhancing tumor margins with surrounding edema",
             "Necrotic glioblastoma core with FLAIR hyperintensity",
@@ -393,7 +393,7 @@ with col_left:
         clinical_prompt = st.text_input(
             "Custom Radiological Note",
             value=selected_preset,
-            help="Text is projected by BioCLIP tower into 512-dim token embeddings to guide reconstruction.",
+            help="Text is projected by clinical text encoder into 512-dim token embeddings to guide reconstruction.",
         )
         st.markdown("</div>", unsafe_allow_html=True)
 

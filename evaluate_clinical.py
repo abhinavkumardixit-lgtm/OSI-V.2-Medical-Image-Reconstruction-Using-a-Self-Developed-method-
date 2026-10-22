@@ -22,7 +22,8 @@ from tme_fuse.data_pipeline import load_volume_from_file_or_bytes
 from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import (
     compute_psnr,
-    compute_ssim_3d,
+    compute_slice_averaged_ssim,
+    compute_ssim_3d_volumetric,
     configure_cpu_multithreading,
 )
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
@@ -131,17 +132,19 @@ def run_clinical_validation():
     with torch.no_grad():
         _ = model(torch.zeros(1, 4, 64, 64, 64), text_prompt="Warmup")
 
-    print("\n" + "=" * 115)
+    print("\n" + "=" * 140)
     print(" [STAGE 3] EVALUATION ON HELD-OUT CLINICAL PATIENTS (N=5 DISJOINT COHORT)")
-    print("=" * 115)
-    print(f"{'PATIENT ID':<22} | {'BASE PSNR':<10} | {'RECON PSNR':<11} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'LATENCY':<9}")
-    print("-" * 115)
+    print("=" * 140)
+    print(f"{'PATIENT ID':<22} | {'BASE PSNR':<10} | {'RECON PSNR':<11} | {'GAIN (dB)':<10} | {'FG PSNR':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'GAIN SSIM':<9} | {'VOL 3D SSIM':<11} | {'MAX DISP':<9} | {'LATENCY':<8}")
+    print("-" * 140)
 
     prompt = "Enhancing tumor margins with surrounding edema"
     model.eval()
 
     base_psnrs, recon_psnrs, gains_psnr = [], [], []
-    base_ssims, recon_ssims = [], []
+    fg_psnrs = []
+    base_ssims, recon_ssims, gains_ssim = [], [], []
+    vol_ssims = []
     displacements, latencies = [], []
 
     for idx, fpath in enumerate(sorted(held_out_files)):
@@ -168,44 +171,57 @@ def run_clinical_validation():
         base_p = compute_psnr(in_np, gt_np, data_range=1.0)
         recon_p = compute_psnr(rc_np, gt_np, data_range=1.0)
         gain_p = recon_p - base_p
+        recon_fg = compute_psnr(rc_np, gt_np, foreground_only=True)
 
-        base_s, _ = compute_ssim_3d(in_np, gt_np, step=4)
-        recon_s, _ = compute_ssim_3d(rc_np, gt_np, step=4)
+        base_s, _ = compute_slice_averaged_ssim(in_np, gt_np, step=4)
+        recon_s, _ = compute_slice_averaged_ssim(rc_np, gt_np, step=4)
+        gain_s = recon_s - base_s
+
+        vol_s, _ = compute_ssim_3d_volumetric(gt_np, rc_np)
 
         max_d = float(diag["egnn"]["max_cumulative_displacement_um"])
 
         base_psnrs.append(base_p)
         recon_psnrs.append(recon_p)
         gains_psnr.append(gain_p)
+        fg_psnrs.append(recon_fg)
         base_ssims.append(base_s)
         recon_ssims.append(recon_s)
+        gains_ssim.append(gain_s)
+        vol_ssims.append(vol_s)
         displacements.append(max_d)
         latencies.append(elapsed_ms)
 
         print(
-            f"{subj_name:<22} | {base_p:>8.2f} dB | {recon_p:>8.2f} dB  | {gain_p:>+8.2f} dB | "
-            f"{base_s:>9.4f} | {recon_s:>10.4f} | {max_d:>8.3f} um | {elapsed_ms:>7.1f} ms"
+            f"{subj_name:<22} | {base_p:>8.2f} dB | {recon_p:>8.2f} dB  | {gain_p:>+8.2f} dB | {recon_fg:>8.2f} dB | "
+            f"{base_s:>9.4f} | {recon_s:>10.4f} | {gain_s:>+9.4f} | {vol_s:>11.4f} | {max_d:>7.3f} um | {elapsed_ms:>6.1f} ms"
         )
 
     # Aggregate Bootstrap Statistics
     base_p_ci = compute_bootstrap_ci(base_psnrs)
     recon_p_ci = compute_bootstrap_ci(recon_psnrs)
     gain_p_ci = compute_bootstrap_ci(gains_psnr)
+    fg_p_ci = compute_bootstrap_ci(fg_psnrs)
     recon_s_ci = compute_bootstrap_ci(recon_ssims)
+    gain_s_ci = compute_bootstrap_ci(gains_ssim)
+    vol_s_ci = compute_bootstrap_ci(vol_ssims)
     disp_ci = compute_bootstrap_ci(displacements)
 
-    print("=" * 115)
+    print("=" * 140)
     print(" [STAGE 4] AGGREGATE HELD-OUT COHORT METRICS (95% BOOTSTRAP CONFIDENCE INTERVALS)")
-    print("=" * 115)
-    print(f"{'METRIC':<34} | {'MEDIAN':<12} | {'MINIMUM':<10} | {'MAXIMUM':<10} | {'95% BOOTSTRAP CI':<24}")
-    print("-" * 115)
-    print(f"{'Identity Baseline PSNR (dB)':<34} | {np.median(base_psnrs):>10.2f} dB | {np.min(base_psnrs):>8.2f} dB | {np.max(base_psnrs):>8.2f} dB | [{base_p_ci[0]:.2f}, {base_p_ci[1]:.2f}] dB")
-    print(f"{'Model Reconstruction PSNR (dB)':<34} | {np.median(recon_psnrs):>10.2f} dB | {np.min(recon_psnrs):>8.2f} dB | {np.max(recon_psnrs):>8.2f} dB | [{recon_p_ci[0]:.2f}, {recon_p_ci[1]:.2f}] dB")
-    print(f"{'Reconstruction Gain Delta-PSNR':<34} | {np.median(gains_psnr):>+10.2f} dB | {np.min(gains_psnr):>+8.2f} dB | {np.max(gains_psnr):>+8.2f} dB | [{gain_p_ci[0]:+.2f}, {gain_p_ci[1]:+.2f}] dB")
-    print(f"{'Model Structural Similarity SSIM':<34} | {np.median(recon_ssims):>12.4f} | {np.min(recon_ssims):>10.4f} | {np.max(recon_ssims):>10.4f} | [{recon_s_ci[0]:.4f}, {recon_s_ci[1]:.4f}]")
-    print(f"{'Max Cumulative Displacement (um)':<34} | {np.median(displacements):>10.3f} um | {np.min(displacements):>8.3f} um | {np.max(displacements):>8.3f} um | [{disp_ci[0]:.3f}, {disp_ci[1]:.3f}] um")
-    print(f"{'Pure-CPU Latency (ms)':<34} | {np.median(latencies):>10.1f} ms | {np.min(latencies):>8.1f} ms | {np.max(latencies):>8.1f} ms | [{np.percentile(latencies, 2.5):.1f}, {np.percentile(latencies, 97.5):.1f}] ms")
-    print("=" * 115)
+    print("=" * 140)
+    print(f"{'METRIC':<36} | {'MEDIAN':<12} | {'MINIMUM':<10} | {'MAXIMUM':<10} | {'95% BOOTSTRAP CI':<24}")
+    print("-" * 140)
+    print(f"{'Identity Baseline PSNR (dB)':<36} | {np.median(base_psnrs):>10.2f} dB | {np.min(base_psnrs):>8.2f} dB | {np.max(base_psnrs):>8.2f} dB | [{base_p_ci[0]:.2f}, {base_p_ci[1]:.2f}] dB")
+    print(f"{'Model Reconstruction PSNR (dB)':<36} | {np.median(recon_psnrs):>10.2f} dB | {np.min(recon_psnrs):>8.2f} dB | {np.max(recon_psnrs):>8.2f} dB | [{recon_p_ci[0]:.2f}, {recon_p_ci[1]:.2f}] dB")
+    print(f"{'Reconstruction Gain Delta-PSNR':<36} | {np.median(gains_psnr):>+10.2f} dB | {np.min(gains_psnr):>+8.2f} dB | {np.max(gains_psnr):>+8.2f} dB | [{gain_p_ci[0]:+.2f}, {gain_p_ci[1]:+.2f}] dB")
+    print(f"{'Foreground-Only PSNR (dB)':<36} | {np.median(fg_psnrs):>10.2f} dB | {np.min(fg_psnrs):>8.2f} dB | {np.max(fg_psnrs):>8.2f} dB | [{fg_p_ci[0]:.2f}, {fg_p_ci[1]:.2f}] dB")
+    print(f"{'Model Slice-Averaged SSIM':<36} | {np.median(recon_ssims):>12.4f} | {np.min(recon_ssims):>10.4f} | {np.max(recon_ssims):>10.4f} | [{recon_s_ci[0]:.4f}, {recon_s_ci[1]:.4f}]")
+    print(f"{'Per-Patient SSIM Gain Delta-SSIM':<36} | {np.median(gains_ssim):>+12.4f} | {np.min(gains_ssim):>+10.4f} | {np.max(gains_ssim):>+10.4f} | [{gain_s_ci[0]:+.4f}, {gain_s_ci[1]:+.4f}]")
+    print(f"{'True 3D Volumetric SSIM':<36} | {np.median(vol_ssims):>12.4f} | {np.min(vol_ssims):>10.4f} | {np.max(vol_ssims):>10.4f} | [{vol_s_ci[0]:.4f}, {vol_s_ci[1]:.4f}]")
+    print(f"{'Max Cumulative Displacement (um)':<36} | {np.median(displacements):>10.3f} um | {np.min(displacements):>8.3f} um | {np.max(displacements):>8.3f} um | [{disp_ci[0]:.3f}, {disp_ci[1]:.3f}] um")
+    print(f"{'Pure-CPU Latency (ms)':<36} | {np.median(latencies):>10.1f} ms | {np.min(latencies):>8.1f} ms | {np.max(latencies):>8.1f} ms | [{np.percentile(latencies, 2.5):.1f}, {np.percentile(latencies, 97.5):.1f}] ms")
+    print("=" * 140)
     thm7_pass_count = sum(d <= 6.0 for d in displacements)
     print(f"[+] Theorem 7 Geometric Regularization: {thm7_pass_count}/{len(displacements)} PASSED (100% Bound Satisfaction <= 6.0 um)")
     print("[+] Master Clinical Validation: PASSED WITH ZERO DATA LEAKAGE.\n")

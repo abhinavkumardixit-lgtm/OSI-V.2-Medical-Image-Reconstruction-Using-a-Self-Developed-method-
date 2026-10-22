@@ -46,7 +46,7 @@ def verify_real_patient(patient_id: str = "BraTS-GLI-00000-000"):
 
     # 2. Physiologically & Physically Grounded 4x Accelerated MRI Degradation
     from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
-    input_tensor = simulate_mri_undersampling(clean_tensor, acceleration=4, center_fraction=0.16)
+    input_tensor = simulate_mri_undersampling(clean_tensor, acceleration=4, center_fraction=0.16, seed=42)
     in_np = input_tensor.squeeze(0).numpy()
     base_psnr = compute_psnr(in_np, gt_np, data_range=1.0)
     base_ssim, _ = compute_ssim_3d(in_np, gt_np, step=8)
@@ -62,7 +62,7 @@ def verify_real_patient(patient_id: str = "BraTS-GLI-00000-000"):
     model.eval()
 
     # 4. Model Forward Pass: Reconstruct from degraded input
-    prompt = "T1ce contrast enhancing tumor rim margin with surrounding peritumoral edema"
+    prompt = "Enhancing tumor margins with surrounding edema"
     # CPU Warm-up
     with torch.no_grad():
         _ = model(torch.zeros_like(input_tensor), text_prompt="Warmup")

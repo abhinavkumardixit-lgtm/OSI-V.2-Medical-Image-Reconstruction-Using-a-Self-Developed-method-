@@ -50,9 +50,10 @@ def run_full_cohort_benchmark():
         _ = model(warmup_tensor, text_prompt="Warmup pass")
     print("[+] Warm-up completed.")
 
-    print("\n" + "=" * 130)
-    print(f"{'PATIENT ID':<22} | {'BASE PSNR':<10} | {'RECON PSNR':<11} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'SATURATED':<10} | {'LATENCY':<9}")
-    print("=" * 130)
+    print("\n" + "=" * 140)
+    header = f"{'PATIENT ID':<22} | {'BASE PSNR':<10} | {'RECON PSNR':<11} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'L0 CLAMP':<10} | {'LATENCY':<9}"
+    print(header)
+    print("=" * 140)
 
     all_base_psnr = []
     all_recon_psnr = []
@@ -63,8 +64,10 @@ def run_full_cohort_benchmark():
     all_lat = []
     all_fg_psnr = []
     all_vol_ssim = []
+    all_l0_clamp = []
 
     prompt = "Enhancing tumor margins with surrounding edema"
+    log_lines = [header, "-" * 140]
 
     for idx, fpath in enumerate(files):
         subj_name = os.path.splitext(os.path.basename(fpath))[0]
@@ -103,7 +106,8 @@ def run_full_cohort_benchmark():
         recon_vol_ssim, _ = compute_ssim_3d_volumetric(gt_np, rc_np)
 
         max_disp = diag["egnn"]["max_cumulative_displacement_um"]
-        saturated = "YES" if diag["egnn"].get("saturation_observed", False) else "NO"
+        clamp_fracs = diag["egnn"].get("layer_clamp_fractions", [0.0])
+        l0_pct = clamp_fracs[0] * 100.0 if clamp_fracs else 0.0
 
         all_base_psnr.append(base_psnr)
         all_recon_psnr.append(recon_psnr)
@@ -114,23 +118,47 @@ def run_full_cohort_benchmark():
         all_lat.append(elapsed_ms)
         all_fg_psnr.append(recon_fg_psnr)
         all_vol_ssim.append(recon_vol_ssim)
+        all_l0_clamp.append(l0_pct)
 
-        print(
+        row_str = (
             f"{subj_name:<22} | {base_psnr:>8.2f} dB | {recon_psnr:>8.2f} dB  | {psnr_gain:>+8.2f} dB | "
-            f"{base_ssim:>9.4f} | {recon_ssim:>10.4f} | {max_disp:>8.3f} um | {saturated:^10} | {elapsed_ms:>7.1f} ms"
+            f"{base_ssim:>9.4f} | {recon_ssim:>10.4f} | {max_disp:>8.3f} um | {l0_pct:>8.1f}% | {elapsed_ms:>7.1f} ms"
         )
+        print(row_str)
+        log_lines.append(row_str)
 
     max_cohort_disp = float(np.max(all_disp))
-    print("=" * 130)
-    print(
+    mean_l0_clamp = float(np.mean(all_l0_clamp))
+    print("=" * 140)
+    summary_mean = (
         f"{'COHORT MEAN (N=' + str(len(files)) + ')':<22} | {np.mean(all_base_psnr):>8.2f} dB | {np.mean(all_recon_psnr):>8.2f} dB  | {np.mean(all_psnr_gains):>+8.2f} dB | "
-        f"{np.mean(all_base_ssim):>9.4f} | {np.mean(all_recon_ssim):>10.4f} | {np.mean(all_disp):>8.3f} um | {'ALL':^10} | {np.mean(all_lat):>7.1f} ms"
+        f"{np.mean(all_base_ssim):>9.4f} | {np.mean(all_recon_ssim):>10.4f} | {np.mean(all_disp):>8.3f} um | {mean_l0_clamp:>8.1f}% | {np.mean(all_lat):>7.1f} ms"
     )
-    print(f"{'COHORT MEDIAN':<22} | {np.median(all_base_psnr):>8.2f} dB | {np.median(all_recon_psnr):>8.2f} dB  | {np.median(all_psnr_gains):>+8.2f} dB | {np.median(all_base_ssim):>9.4f} | {np.median(all_recon_ssim):>10.4f} | {np.median(all_disp):>8.3f} um | {'-':^10} | {np.median(all_lat):>7.1f} ms")
+    summary_median = (
+        f"{'COHORT MEDIAN':<22} | {np.median(all_base_psnr):>8.2f} dB | {np.median(all_recon_psnr):>8.2f} dB  | {np.median(all_psnr_gains):>+8.2f} dB | {np.median(all_base_ssim):>9.4f} | {np.median(all_recon_ssim):>10.4f} | {np.median(all_disp):>8.3f} um | {np.median(all_l0_clamp):>8.1f}% | {np.median(all_lat):>7.1f} ms"
+    )
+    print(summary_mean)
+    print(summary_median)
     print(f"Foreground PSNR Mean: {np.mean(all_fg_psnr):.2f} dB | True 3D Volumetric SSIM Mean: {np.mean(all_vol_ssim):.4f}")
     print(f"Cohort Peak Max Displacement: {max_cohort_disp:.3f} um (Theorem 7 Limit: 6.000 um)")
-    print("=" * 130)
+    print(f"Layer-0 Boundary Node Clamping Rate: Mean {mean_l0_clamp:.1f}%, Median {np.median(all_l0_clamp):.1f}%")
+    print("=" * 140)
     print(f"Theorem 7 Lipschitz Compliance: {sum(d <= 6.0 for d in all_disp)}/{len(all_disp)} cases passed (<= 6.0 um)\n")
+
+    log_lines.extend([
+        "=" * 140,
+        summary_mean,
+        summary_median,
+        f"Foreground PSNR Mean: {np.mean(all_fg_psnr):.2f} dB | True 3D Volumetric SSIM Mean: {np.mean(all_vol_ssim):.4f}",
+        f"Cohort Peak Max Displacement: {max_cohort_disp:.3f} um (Theorem 7 Limit: 6.000 um)",
+        f"Layer-0 Boundary Node Clamping Rate: Mean {mean_l0_clamp:.1f}%, Median {np.median(all_l0_clamp):.1f}%",
+        f"Theorem 7 Lipschitz Compliance: {sum(d <= 6.0 for d in all_disp)}/{len(all_disp)} cases passed (<= 6.0 um)",
+    ])
+
+    out_file = "benchmark_full_cohort_output.txt"
+    with open(out_file, "w") as f:
+        f.write("\n".join(log_lines) + "\n")
+    print(f"[+] Saved audit-grade per-patient cohort benchmark to: {out_file}")
 
 
 if __name__ == "__main__":

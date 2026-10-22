@@ -1,7 +1,7 @@
 """
 TME-FUSE Clinical Pipeline & Real Patient Validation Test Suite.
 Validates end-to-end model execution on real BraTS neuroimaging data,
-cross-modal BioCLIP conditioning, memory constraints, and quantitative benchmarks.
+clinical text encoder conditioning and additive prompt projection, memory constraints, and quantitative benchmarks.
 """
 
 import glob
@@ -136,7 +136,7 @@ class TestClinicalModelInference:
         assert bench["memory_mb"] < 200.0, f"Estimated RAM {bench['memory_mb']} MB exceeded 200 MB budget"
 
 
-class TestBioCLIPPromptModulation:
+class TestClinicalPromptModulation:
     """Validates cross-modal text conditioning steers sequence channels appropriately."""
 
     def test_edema_prompt_modulates_flair(self, trained_model, real_brats_cases):

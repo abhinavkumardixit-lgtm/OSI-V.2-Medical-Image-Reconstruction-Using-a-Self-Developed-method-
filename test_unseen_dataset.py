@@ -27,7 +27,12 @@ from huggingface_hub import hf_hub_download
 
 from tme_fuse.data_pipeline import crop_foreground_bounding_box, normalize_volume_channels, resize_volume_patch
 from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
-from tme_fuse.evaluation.metrics import compute_psnr, compute_ssim_3d, configure_cpu_multithreading
+from tme_fuse.evaluation.metrics import (
+    compute_psnr,
+    compute_slice_averaged_ssim,
+    compute_ssim_3d_volumetric,
+    configure_cpu_multithreading,
+)
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
 from tme_fuse.visualization_3d import (
     analyze_tumor_3d_localization,
@@ -191,15 +196,18 @@ def run_unseen_cohort_evaluation():
 
     model.eval()
 
-    print("\n" + "=" * 115)
-    print(f"{'HELD-OUT PATIENT':<20} | {'BASE PSNR':<10} | {'RECON PSNR':<10} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'THM 7':<7}")
-    print("=" * 115)
+    print("\n" + "=" * 140)
+    print(f"{'HELD-OUT PATIENT':<20} | {'BASE PSNR':<10} | {'RECON PSNR':<10} | {'GAIN (dB)':<10} | {'FG PSNR':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'GAIN SSIM':<9} | {'VOL 3D SSIM':<11} | {'MAX DISP':<9} | {'THM 7':<6}")
+    print("=" * 140)
 
     all_base_psnr = []
     all_recon_psnr = []
     all_gains_psnr = []
+    all_fg_psnr = []
     all_base_ssim = []
     all_recon_ssim = []
+    all_gains_ssim = []
+    all_vol_ssim = []
     all_disp = []
 
     prompt = "Enhancing tumor margins with surrounding edema"
@@ -233,9 +241,13 @@ def run_unseen_cohort_evaluation():
         base_psnr = compute_psnr(vol_in, vol_gt, data_range=1.0)
         recon_psnr = compute_psnr(vol_rc, vol_gt, data_range=1.0)
         psnr_gain = recon_psnr - base_psnr
+        recon_fg_psnr = compute_psnr(vol_rc, vol_gt, foreground_only=True)
 
-        base_ssim, _ = compute_ssim_3d(vol_in, vol_gt, step=4)
-        recon_ssim, _ = compute_ssim_3d(vol_rc, vol_gt, step=4)
+        base_ssim, _ = compute_slice_averaged_ssim(vol_in, vol_gt, step=4)
+        recon_ssim, _ = compute_slice_averaged_ssim(vol_rc, vol_gt, step=4)
+        ssim_gain = recon_ssim - base_ssim
+
+        vol_ssim, _ = compute_ssim_3d_volumetric(vol_gt, vol_rc)
 
         max_disp = float(diag["egnn"]["max_cumulative_displacement_um"])
         bound_ok = "PASS" if diag["egnn"]["theorem_7_satisfied"] else "FAIL"
@@ -243,13 +255,17 @@ def run_unseen_cohort_evaluation():
         all_base_psnr.append(base_psnr)
         all_recon_psnr.append(recon_psnr)
         all_gains_psnr.append(psnr_gain)
+        all_fg_psnr.append(recon_fg_psnr)
         all_base_ssim.append(base_ssim)
         all_recon_ssim.append(recon_ssim)
+        all_gains_ssim.append(ssim_gain)
+        all_vol_ssim.append(vol_ssim)
         all_disp.append(max_disp)
 
         print(
             f"{subj_name:<20} | {base_psnr:>8.2f} dB | {recon_psnr:>8.2f} dB | {psnr_gain:>+8.2f} dB | "
-            f"{base_ssim:>9.4f} | {recon_ssim:>10.4f} | {max_disp:>8.3f} um | {bound_ok:<7}"
+            f"{recon_fg_psnr:>8.2f} dB | {base_ssim:>9.4f} | {recon_ssim:>10.4f} | {ssim_gain:>+9.4f} | "
+            f"{vol_ssim:>11.4f} | {max_disp:>7.3f} um | {bound_ok:<6}"
         )
 
         # Export 3D interactive model
@@ -261,22 +277,28 @@ def run_unseen_cohort_evaluation():
     base_psnr_ci = compute_bootstrap_ci(all_base_psnr, n_bootstraps=5000, ci=0.95)
     recon_psnr_ci = compute_bootstrap_ci(all_recon_psnr, n_bootstraps=5000, ci=0.95)
     gain_psnr_ci = compute_bootstrap_ci(all_gains_psnr, n_bootstraps=5000, ci=0.95)
+    fg_psnr_ci = compute_bootstrap_ci(all_fg_psnr, n_bootstraps=5000, ci=0.95)
     recon_ssim_ci = compute_bootstrap_ci(all_recon_ssim, n_bootstraps=5000, ci=0.95)
+    gain_ssim_ci = compute_bootstrap_ci(all_gains_ssim, n_bootstraps=5000, ci=0.95)
+    vol_ssim_ci = compute_bootstrap_ci(all_vol_ssim, n_bootstraps=5000, ci=0.95)
     disp_ci = compute_bootstrap_ci(all_disp, n_bootstraps=5000, ci=0.95)
 
-    print("=" * 115)
+    print("=" * 140)
     print(" [STEP 3] AGGREGATE COHORT EVALUATION METRICS (N=5 HELD-OUT CASES)")
-    print("=" * 115)
-    print(f"{'METRIC':<32} | {'MEDIAN':<12} | {'MINIMUM':<10} | {'MAXIMUM':<10} | {'95% BOOTSTRAP CI':<24}")
-    print("-" * 115)
-    print(f"{'Identity Baseline PSNR (dB)':<32} | {np.median(all_base_psnr):>10.2f} dB | {np.min(all_base_psnr):>8.2f} dB | {np.max(all_base_psnr):>8.2f} dB | [{base_psnr_ci[0]:.2f}, {base_psnr_ci[1]:.2f}] dB")
-    print(f"{'Model Reconstruction PSNR (dB)':<32} | {np.median(all_recon_psnr):>10.2f} dB | {np.min(all_recon_psnr):>8.2f} dB | {np.max(all_recon_psnr):>8.2f} dB | [{recon_psnr_ci[0]:.2f}, {recon_psnr_ci[1]:.2f}] dB")
-    print(f"{'Reconstruction Gain Delta-PSNR':<32} | {np.median(all_gains_psnr):>+10.2f} dB | {np.min(all_gains_psnr):>+8.2f} dB | {np.max(all_gains_psnr):>+8.2f} dB | [{gain_psnr_ci[0]:+.2f}, {gain_psnr_ci[1]:+.2f}] dB")
-    print(f"{'Model SSIM':<32} | {np.median(all_recon_ssim):>12.4f} | {np.min(all_recon_ssim):>10.4f} | {np.max(all_recon_ssim):>10.4f} | [{recon_ssim_ci[0]:.4f}, {recon_ssim_ci[1]:.4f}]")
-    print(f"{'Max Displacement (um)':<32} | {np.median(all_disp):>10.3f} um | {np.min(all_disp):>8.3f} um | {np.max(all_disp):>8.3f} um | [{disp_ci[0]:.3f}, {disp_ci[1]:.3f}] um")
-    print("=" * 115)
+    print("=" * 140)
+    print(f"{'METRIC':<36} | {'MEDIAN':<12} | {'MINIMUM':<10} | {'MAXIMUM':<10} | {'95% BOOTSTRAP CI':<24}")
+    print("-" * 140)
+    print(f"{'Identity Baseline PSNR (dB)':<36} | {np.median(all_base_psnr):>10.2f} dB | {np.min(all_base_psnr):>8.2f} dB | {np.max(all_base_psnr):>8.2f} dB | [{base_psnr_ci[0]:.2f}, {base_psnr_ci[1]:.2f}] dB")
+    print(f"{'Model Reconstruction PSNR (dB)':<36} | {np.median(all_recon_psnr):>10.2f} dB | {np.min(all_recon_psnr):>8.2f} dB | {np.max(all_recon_psnr):>8.2f} dB | [{recon_psnr_ci[0]:.2f}, {recon_psnr_ci[1]:.2f}] dB")
+    print(f"{'Reconstruction Gain Delta-PSNR':<36} | {np.median(all_gains_psnr):>+10.2f} dB | {np.min(all_gains_psnr):>+8.2f} dB | {np.max(all_gains_psnr):>+8.2f} dB | [{gain_psnr_ci[0]:+.2f}, {gain_psnr_ci[1]:+.2f}] dB")
+    print(f"{'Foreground-Only PSNR (dB)':<36} | {np.median(all_fg_psnr):>10.2f} dB | {np.min(all_fg_psnr):>8.2f} dB | {np.max(all_fg_psnr):>8.2f} dB | [{fg_psnr_ci[0]:.2f}, {fg_psnr_ci[1]:.2f}] dB")
+    print(f"{'Model Slice-Averaged SSIM':<36} | {np.median(all_recon_ssim):>12.4f} | {np.min(all_recon_ssim):>10.4f} | {np.max(all_recon_ssim):>10.4f} | [{recon_ssim_ci[0]:.4f}, {recon_ssim_ci[1]:.4f}]")
+    print(f"{'Per-Patient SSIM Gain Delta-SSIM':<36} | {np.median(all_gains_ssim):>+12.4f} | {np.min(all_gains_ssim):>+10.4f} | {np.max(all_gains_ssim):>+10.4f} | [{gain_ssim_ci[0]:+.4f}, {gain_ssim_ci[1]:+.4f}]")
+    print(f"{'True 3D Volumetric SSIM':<36} | {np.median(all_vol_ssim):>12.4f} | {np.min(all_vol_ssim):>10.4f} | {np.max(all_vol_ssim):>10.4f} | [{vol_ssim_ci[0]:.4f}, {vol_ssim_ci[1]:.4f}]")
+    print(f"{'Max Displacement (um)':<36} | {np.median(all_disp):>10.3f} um | {np.min(all_disp):>8.3f} um | {np.max(all_disp):>8.3f} um | [{disp_ci[0]:.3f}, {disp_ci[1]:.3f}] um")
+    print("=" * 140)
     print(f"Theorem 7 Compliance: {sum(d <= 6.0 for d in all_disp)}/{len(all_disp)} Passed (100% Bound Satisfaction)")
-    print("=" * 115 + "\n")
+    print("=" * 140 + "\n")
 
 
 if __name__ == "__main__":

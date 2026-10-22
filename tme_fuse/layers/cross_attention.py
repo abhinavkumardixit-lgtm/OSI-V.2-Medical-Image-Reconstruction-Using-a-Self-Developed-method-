@@ -1,6 +1,6 @@
 """
 Cross-Modal Conditioning Layer for TME-FUSE.
-Injects 512-dim BioCLIP text descriptors into the 128-dim geometric latent tokens
+Injects 512-dim clinical text encoder embeddings into the 128-dim geometric latent tokens
 via global additive linear prompt projection.
 """
 
@@ -48,7 +48,7 @@ class AdditivePromptProjectionLayer(nn.Module):
         """
         Args:
             h: Spatial graph tokens of shape (B, N, feature_dim)
-            text_emb: BioCLIP text embedding of shape (B, 1, text_dim) or (B, text_dim)
+            text_emb: Clinical text encoder embedding of shape (B, 1, text_dim) or (B, text_dim)
 
         Returns:
             h_conditioned: (B, N, feature_dim)

@@ -216,15 +216,15 @@ def run_evaluation():
     print("-" * 115)
 
     results = []
-    prompt = "T1ce contrast enhancing tumor rim margin with surrounding peritumoral edema"
+    prompt = "Enhancing tumor margins with surrounding edema"
 
-    for npz_path in sorted(new_cohort_files):
+    for idx, npz_path in enumerate(sorted(new_cohort_files)):
         subj_name = os.path.splitext(os.path.basename(npz_path))[0]
         data = np.load(npz_path)
         vol_gt = data["volume"].astype(np.float32)
         seg_gt = data.get("seg", None)
         target_tensor = torch.from_numpy(vol_gt).unsqueeze(0).float()
-        input_tensor = simulate_mri_undersampling(target_tensor, acceleration=4, center_fraction=0.16)
+        input_tensor = simulate_mri_undersampling(target_tensor, acceleration=4, center_fraction=0.16, seed=42 + idx)
         vol_in = input_tensor.squeeze(0).numpy()
 
         t0 = time.perf_counter()

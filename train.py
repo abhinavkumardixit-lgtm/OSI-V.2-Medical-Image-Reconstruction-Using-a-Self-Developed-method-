@@ -83,8 +83,8 @@ class RealBraTSDataset(Dataset):
         vol = data["volume"].astype(np.float32)  # (4, 64, 64, 64)
         subj_id = str(data.get("subject_id", os.path.basename(fpath)))
 
-        # Assign clinical prompt based on genuine multi-parametric pathology
-        prompt = assign_radiology_prompt_from_pathology(vol, subj_id)
+        # Standard fixed clinical prompt across all training and evaluation (eliminates clean-target prompt leakage)
+        prompt = "Enhancing tumor margins with surrounding edema"
 
         # 3D spatial augmentations (random 90-degree axis rotations and flips)
         if self.augment:
@@ -168,11 +168,12 @@ def train_tme_fuse(
             target_vols = batch_vols.float()
 
             # 2. Physiologically & Physically Grounded Input Degradation (nominal 4x stride, 2.78x effective acceleration)
+            # Training applies unseeded stochastic noise (seed=None)
             input_vols = simulate_mri_undersampling(
                 target_vols,
                 acceleration=4,
                 center_fraction=0.16,
-                seed=42 + epoch * 1000 + b_idx,
+                seed=None,
             )
 
             # 3. Model Forward Pass: Reconstruct clean targets from degraded inputs
