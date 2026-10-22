@@ -23,10 +23,15 @@ CLINICAL_LEXICON = [
 ]
 
 
-class BioCLIPTextEncoder(nn.Module):
+class ClinicalTextEncoder(nn.Module):
     """
     Biomedical text conditioning tower producing a 512-dimensional
-    clinical embedding vector for cross-attention injection.
+    clinical embedding vector for additive prompt projection.
+    
+    Default configuration:
+    - Lightweight clinical semantic tokenizer & projection tower over domain-specific
+      neuro-oncology vocabulary (necrosis, enhancing margins, edema, FLAIR, T1ce).
+    - Can optionally attach OpenCLIP ViT-B/32 backbone when use_openclip=True.
     """
 
     def __init__(
@@ -93,3 +98,7 @@ class BioCLIPTextEncoder(nn.Module):
     ) -> torch.Tensor:
         target_device = device if device is not None else next(self.parameters()).device
         return self.encode_text_tokens(prompt, device=target_device)
+
+
+# Backwards compatibility alias
+BioCLIPTextEncoder = ClinicalTextEncoder

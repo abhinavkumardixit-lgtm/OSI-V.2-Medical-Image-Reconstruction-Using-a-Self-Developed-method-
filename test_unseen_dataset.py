@@ -202,21 +202,26 @@ def run_unseen_cohort_evaluation():
     all_recon_ssim = []
     all_disp = []
 
-    prompt = "T1ce contrast enhancing tumor rim margin with surrounding peritumoral edema"
+    prompt = "Enhancing tumor margins with surrounding edema"
 
     # Warmup pass
     dummy = torch.zeros(1, 4, 64, 64, 64)
     with torch.no_grad():
         _ = model(dummy, text_prompt="Warmup")
 
-    for npz_path in sorted(unseen_npz_files):
+    for idx, npz_path in enumerate(sorted(unseen_npz_files)):
         subj_name = os.path.splitext(os.path.basename(npz_path))[0]
         data = np.load(npz_path)
         vol_gt = data["volume"].astype(np.float32)
         target_tensor = torch.from_numpy(vol_gt).unsqueeze(0).float()
 
-        # 4x k-space undersampling degradation
-        input_tensor = simulate_mri_undersampling(target_tensor, acceleration=4, center_fraction=0.16)
+        # 4x k-space undersampling degradation with fixed deterministic seed per subject
+        input_tensor = simulate_mri_undersampling(
+            target_tensor,
+            acceleration=4,
+            center_fraction=0.16,
+            seed=42 + idx,
+        )
         vol_in = input_tensor.squeeze(0).numpy()
 
         with torch.no_grad():

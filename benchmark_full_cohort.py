@@ -1,7 +1,7 @@
 """
 TME-FUSE Full Clinical Cohort Benchmark Script.
-Evaluates the fine-tuned model across all 16 real patient cases from the
-MICCAI BraTS 2023 Challenge and prints an audit-grade clinical table.
+Evaluates the fine-tuned model across the full 60-patient cohort (55 training + 5 held-out)
+from the MICCAI BraTS 2023 Challenge and prints an audit-grade clinical table.
 """
 
 import glob
@@ -14,7 +14,8 @@ from tme_fuse.data_pipeline import load_volume_from_file_or_bytes
 from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import (
     compute_psnr,
-    compute_ssim_3d,
+    compute_slice_averaged_ssim,
+    compute_ssim_3d_volumetric,
     configure_cpu_multithreading,
 )
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
@@ -26,6 +27,8 @@ def run_full_cohort_benchmark():
     if not files:
         print("[-] Error: No real BraTS cases found in data/real_brats/. Run 'python download_brats_cohort.py' first.")
         return
+
+    print(f"[+] Discovered {len(files)} real BraTS patient cases in data/real_brats/.")
 
     # 1. Load fine-tuned model checkpoint
     model = TMEFuseModel(bottleneck_dim=128, egnn_layers=3, c_max=2.0, k_neighbors=32)
@@ -47,9 +50,9 @@ def run_full_cohort_benchmark():
         _ = model(warmup_tensor, text_prompt="Warmup pass")
     print("[+] Warm-up completed.")
 
-    print("\n" + "=" * 115)
-    print(f"{'PATIENT ID':<22} | {'BASE PSNR':<10} | {'RECON PSNR':<11} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'LATENCY':<9}")
-    print("=" * 115)
+    print("\n" + "=" * 130)
+    print(f"{'PATIENT ID':<22} | {'BASE PSNR':<10} | {'RECON PSNR':<11} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'SATURATED':<10} | {'LATENCY':<9}")
+    print("=" * 130)
 
     all_base_psnr = []
     all_recon_psnr = []
@@ -58,15 +61,22 @@ def run_full_cohort_benchmark():
     all_recon_ssim = []
     all_disp = []
     all_lat = []
+    all_fg_psnr = []
+    all_vol_ssim = []
 
     prompt = "Enhancing tumor margins with surrounding edema"
 
-    for fpath in files:
+    for idx, fpath in enumerate(files):
         subj_name = os.path.splitext(os.path.basename(fpath))[0]
         clean_tensor, _ = load_volume_from_file_or_bytes(fpath)
 
-        # 4x Accelerated MRI acquisition simulation
-        degraded_tensor = simulate_mri_undersampling(clean_tensor, acceleration=4, center_fraction=0.16)
+        # Accelerated MRI acquisition simulation with deterministic seed per patient
+        degraded_tensor = simulate_mri_undersampling(
+            clean_tensor,
+            acceleration=4,
+            center_fraction=0.16,
+            seed=42 + idx,
+        )
 
         t0 = time.perf_counter()
         with torch.no_grad():
@@ -86,10 +96,14 @@ def run_full_cohort_benchmark():
         recon_psnr = compute_psnr(rc_np, gt_np, data_range=1.0)
         psnr_gain = recon_psnr - base_psnr
 
-        base_ssim, _ = compute_ssim_3d(in_np, gt_np, step=8)
-        recon_ssim, _ = compute_ssim_3d(rc_np, gt_np, step=8)
+        recon_fg_psnr = compute_psnr(rc_np, gt_np, foreground_only=True)
+
+        base_ssim, _ = compute_slice_averaged_ssim(in_np, gt_np, step=8)
+        recon_ssim, _ = compute_slice_averaged_ssim(rc_np, gt_np, step=8)
+        recon_vol_ssim, _ = compute_ssim_3d_volumetric(gt_np, rc_np)
 
         max_disp = diag["egnn"]["max_cumulative_displacement_um"]
+        saturated = "YES" if diag["egnn"].get("saturation_observed", False) else "NO"
 
         all_base_psnr.append(base_psnr)
         all_recon_psnr.append(recon_psnr)
@@ -98,18 +112,24 @@ def run_full_cohort_benchmark():
         all_recon_ssim.append(recon_ssim)
         all_disp.append(max_disp)
         all_lat.append(elapsed_ms)
+        all_fg_psnr.append(recon_fg_psnr)
+        all_vol_ssim.append(recon_vol_ssim)
 
         print(
             f"{subj_name:<22} | {base_psnr:>8.2f} dB | {recon_psnr:>8.2f} dB  | {psnr_gain:>+8.2f} dB | "
-            f"{base_ssim:>9.4f} | {recon_ssim:>10.4f} | {max_disp:>8.3f} um | {elapsed_ms:>7.1f} ms"
+            f"{base_ssim:>9.4f} | {recon_ssim:>10.4f} | {max_disp:>8.3f} um | {saturated:^10} | {elapsed_ms:>7.1f} ms"
         )
 
-    print("=" * 115)
+    max_cohort_disp = float(np.max(all_disp))
+    print("=" * 130)
     print(
         f"{'COHORT MEAN (N=' + str(len(files)) + ')':<22} | {np.mean(all_base_psnr):>8.2f} dB | {np.mean(all_recon_psnr):>8.2f} dB  | {np.mean(all_psnr_gains):>+8.2f} dB | "
-        f"{np.mean(all_base_ssim):>9.4f} | {np.mean(all_recon_ssim):>10.4f} | {np.mean(all_disp):>8.3f} um | {np.mean(all_lat):>7.1f} ms"
+        f"{np.mean(all_base_ssim):>9.4f} | {np.mean(all_recon_ssim):>10.4f} | {np.mean(all_disp):>8.3f} um | {'ALL':^10} | {np.mean(all_lat):>7.1f} ms"
     )
-    print("=" * 115)
+    print(f"{'COHORT MEDIAN':<22} | {np.median(all_base_psnr):>8.2f} dB | {np.median(all_recon_psnr):>8.2f} dB  | {np.median(all_psnr_gains):>+8.2f} dB | {np.median(all_base_ssim):>9.4f} | {np.median(all_recon_ssim):>10.4f} | {np.median(all_disp):>8.3f} um | {'-':^10} | {np.median(all_lat):>7.1f} ms")
+    print(f"Foreground PSNR Mean: {np.mean(all_fg_psnr):.2f} dB | True 3D Volumetric SSIM Mean: {np.mean(all_vol_ssim):.4f}")
+    print(f"Cohort Peak Max Displacement: {max_cohort_disp:.3f} um (Theorem 7 Limit: 6.000 um)")
+    print("=" * 130)
     print(f"Theorem 7 Lipschitz Compliance: {sum(d <= 6.0 for d in all_disp)}/{len(all_disp)} cases passed (<= 6.0 um)\n")
 
 

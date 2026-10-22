@@ -14,23 +14,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from tme_fuse.data_pipeline import assign_radiology_prompt_from_pathology
 from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import (
     benchmark_reconstruction,
     compute_psnr,
-    compute_ssim_3d,
+    compute_slice_averaged_ssim,
+    compute_ssim_3d_volumetric,
     configure_cpu_multithreading,
 )
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
-
-# Representative clinical prompts for BraTS patient conditioning
-CLINICAL_PROMPTS = [
-    "Enhancing tumor margins with surrounding edema",
-    "T1ce contrast enhancing rim with peritumoral infiltration",
-    "Necrotic glioblastoma core with FLAIR hyperintensity",
-    "High structural fidelity preservation across all subregions",
-    "Multimodal glioma microenvironment spatial reconstruction",
-]
 
 
 import json
@@ -90,8 +83,8 @@ class RealBraTSDataset(Dataset):
         vol = data["volume"].astype(np.float32)  # (4, 64, 64, 64)
         subj_id = str(data.get("subject_id", os.path.basename(fpath)))
 
-        # Assign clinical prompt
-        prompt = CLINICAL_PROMPTS[idx % len(CLINICAL_PROMPTS)]
+        # Assign clinical prompt based on genuine multi-parametric pathology
+        prompt = assign_radiology_prompt_from_pathology(vol, subj_id)
 
         # 3D spatial augmentations (random 90-degree axis rotations and flips)
         if self.augment:
@@ -116,7 +109,7 @@ def train_tme_fuse(
     fine_tune: bool = False,
 ) -> str:
     """
-    Executes training on real clinical BraTS cases under 4x accelerated degradation objective.
+    Executes training on real clinical BraTS cases under 2.78x effective acceleration degradation objective.
     """
     os.makedirs(checkpoint_dir, exist_ok=True)
     num_threads = configure_cpu_multithreading()
@@ -154,7 +147,7 @@ def train_tme_fuse(
     mse_loss_fn = nn.MSELoss()
 
     print("\n" + "=" * 70)
-    print(f"  STARTING TME-FUSE TRAINING ON REAL PATIENT DATA ({epochs} EPOCHS)")
+    print(f"  STARTING TME-FUSE TRAINING ON REAL PATIENT DATA ({epochs} EPOCHS, LR={lr})")
     print("=" * 70)
 
     for epoch in range(1, epochs + 1):
@@ -167,15 +160,20 @@ def train_tme_fuse(
 
         total_base_psnr = 0.0
 
-        for batch_vols, batch_prompts, batch_subjs in dataloader:
+        for b_idx, (batch_vols, batch_prompts, batch_subjs) in enumerate(dataloader):
             optimizer.zero_grad()
 
             prompt = batch_prompts[0]
             # 1. Clean Reference Target
             target_vols = batch_vols.float()
 
-            # 2. Physiologically & Physically Grounded Input Degradation (4x Accelerated MRI Undersampling)
-            input_vols = simulate_mri_undersampling(target_vols, acceleration=4, center_fraction=0.16)
+            # 2. Physiologically & Physically Grounded Input Degradation (nominal 4x stride, 2.78x effective acceleration)
+            input_vols = simulate_mri_undersampling(
+                target_vols,
+                acceleration=4,
+                center_fraction=0.16,
+                seed=42 + epoch * 1000 + b_idx,
+            )
 
             # 3. Model Forward Pass: Reconstruct clean targets from degraded inputs
             recon, diag = model(
@@ -191,12 +189,15 @@ def train_tme_fuse(
             loss_recon = loss_mse + 0.4 * loss_l1
 
             # 5. Geometric Regularization Loss (Theorem 7 bound safety)
+            # Analytical Note: Under the Lipschitz norm-clamping operator Pi_{c, eps} with c = 2.0 um and L = 3,
+            # max cumulative displacement is strictly bounded by L * c = 6.0 um by Theorem 7.
+            # Thus, torch.relu(max_disp - 6.0) is analytically identically 0.0 (an architectural safety no-op).
+            # The geometric bound is strictly guaranteed by architecture rather than soft loss penalty.
             egnn_diag = diag["egnn"]
             mean_disp = egnn_diag.get("mean_cumulative_displacement_um", 0.0)
             max_disp = egnn_diag.get("max_cumulative_displacement_um", 0.0)
 
-            bound_penalty = torch.relu(torch.tensor(max_disp - 6.0)) * 5.0
-            loss = loss_recon + bound_penalty
+            loss = loss_recon
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -261,6 +262,8 @@ def train_tme_fuse(
             torch.save(
                 {
                     "epoch": epoch,
+                    "epochs": epochs,
+                    "lr": lr,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "best_psnr": best_psnr,
@@ -269,7 +272,10 @@ def train_tme_fuse(
                     "accuracy_pct": avg_acc,
                     "c_max": c_max,
                     "k_neighbors": k_neighbors,
-                    "degradation_mode": "4x_kspace_undersampling_acs16",
+                    "degradation_mode": "2.78x_kspace_undersampling_acs16",
+                    "effective_acceleration": 2.78,
+                    "nominal_acceleration": 4,
+                    "center_fraction": 0.16,
                     "metric_specification": "compute_psnr_unbounded_v2",
                     "split_specification": "data_split.json",
                     "trained_subjects": [os.path.basename(f) for f in dataset.files],
@@ -291,7 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
     parser.add_argument("--data_dir", type=str, default="data/real_brats", help="Path to preprocessed .npz files")
-    parser.add_argument("--lr", type=float, default=8e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate (default: 5e-4)")
     parser.add_argument("--fine_tune", action="store_true", help="Resume/fine-tune from existing checkpoint")
     args = parser.parse_args()
 
@@ -302,3 +308,4 @@ if __name__ == "__main__":
         lr=args.lr,
         fine_tune=args.fine_tune,
     )
+

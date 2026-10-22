@@ -187,15 +187,24 @@ def load_volume_from_file_or_bytes(
     volume_data = np.ascontiguousarray(volume_data, dtype=np.float32)
     meta_info["original_shape"] = volume_data.shape
 
+    # Avoid double-cropping or resampling if already a preprocessed target patch (e.g. 4x64x64x64)
+    is_already_target_patch = (
+        volume_data.ndim == 4
+        and volume_data.shape[0] == 4
+        and tuple(volume_data.shape[1:]) == target_shape
+    )
+
     # 1. Foreground Bounding Box Cropping
-    if apply_cropping:
+    if apply_cropping and not is_already_target_patch:
         volume_data = crop_foreground_bounding_box(volume_data)
 
     # 2. Channel Normalization
-    volume_data = normalize_volume_channels(volume_data, method=normalization)
+    if not is_already_target_patch:
+        volume_data = normalize_volume_channels(volume_data, method=normalization)
 
     # 3. Patch Resizing to Target 3D Shape
-    volume_data = resize_volume_patch(volume_data, target_shape=target_shape)
+    if not is_already_target_patch:
+        volume_data = resize_volume_patch(volume_data, target_shape=target_shape)
 
     # 4. Wrap in PyTorch Tensor: (1, 4, D, H, W)
     tensor = torch.from_numpy(volume_data).unsqueeze(0).float()
@@ -203,6 +212,42 @@ def load_volume_from_file_or_bytes(
     meta_info["modalities"] = ["T1", "T1ce", "T2", "FLAIR"]
 
     return tensor, meta_info
+
+
+def assign_radiology_prompt_from_pathology(volume: np.ndarray, subject_id: str = "") -> str:
+    """
+    Derives an authentic clinical radiological prompt from the patient's multi-parametric MRI pathology
+    (contrast enhancement, necrotic core, and infiltrative FLAIR edema) rather than arbitrary file ordering.
+    
+    Channels:
+    - 0: T1-weighted
+    - 1: T1ce (contrast-enhanced active rim)
+    - 2: T2-weighted
+    - 3: T2-FLAIR (peritumoral vasogenic edema)
+    """
+    if volume.ndim == 4 and volume.shape[0] == 4:
+        vol = volume
+    elif volume.ndim == 5 and volume.shape[1] == 4:
+        vol = volume[0]
+    else:
+        return "Enhancing tumor margins with surrounding peritumoral edema"
+
+    # Quantify relative pathological volumes
+    nec = float(np.sum((vol[0] < 0.25) & (vol[1] > 0.40)))
+    et = float(np.sum(vol[1] > 0.45))
+    ed = float(np.sum(vol[3] > 0.40))
+
+    nec_ratio = nec / (et + 1e-5)
+    ed_ratio = ed / (et + 1e-5)
+
+    if nec_ratio > 0.08:
+        return "Central necrotic glioblastoma core with ring enhancement and peritumoral edema"
+    elif ed_ratio > 3.0:
+        return "Infiltrative peritumoral FLAIR hyperintensity with extensive vasogenic edema"
+    elif et > 60000:
+        return "T1ce hypervascular contrast-enhancing tumor margin with focal invasion"
+    else:
+        return "Enhancing tumor margins with surrounding peritumoral edema"
 
 
 if __name__ == "__main__":

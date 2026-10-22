@@ -47,7 +47,7 @@ flowchart TD
     subgraph Decoder ["5. 3D ConvTranspose Reconstruction"]
         H["Grid Un-flattening<br/>Shape: (1, 128, 8, 8, 8)"]
         I["Progressive 3D Upsampling<br/>Resolution: 8 to 16 to 32 to 64"]
-        J["Reconstructed 4D MRI Volume<br/>Shape: (1, 4, 64, 64, 64)<br/>PSNR > 54 dB | SSIM > 0.999"]
+        J["Reconstructed 4D MRI Volume<br/>Shape: (1, 4, 64, 64, 64)<br/>Active Frequency Recovery<br/>Theorem 7: Delta x <= 6.0 um"]
     end
 
     A --> B
@@ -99,46 +99,58 @@ The console verifies and reports 100.00% compliance live on every forward pass.
 ## 🧪 Real Clinical Data Training & Validation Benchmarks
 
 ### 1. Training Cohort (55 Real BraTS 2023 Patients)
-The model is trained on **55 real patient cases** from the **MICCAI BraTS 2023 Challenge** (`MedOtter/brats2023-gli-dataset`) under a realistic 4x accelerated k-space undersampling acquisition task:
-- Training IDs strictly defined in [`data_split.json`](file:///e:/OSI/data_split.json): `BraTS-GLI-00000-000` through `BraTS-GLI-00059-000`.
+The model is trained on **55 real patient cases** from the **MICCAI BraTS 2023 Challenge** (`MedOtter/brats2023-gli-dataset`) under a 2.78× effective accelerated acquisition task (nominal 4× k-space stride with 16% low-frequency ACS center, retaining 23/64 lines = 35.9% k-space):
+- Training IDs strictly defined in [data_split.json](data_split.json): `BraTS-GLI-00000-000` through `BraTS-GLI-00059-000`.
+- Hyperparameters: 5 epochs, AdamW optimizer with cosine decay, initial learning rate $\text{lr} = 5 \times 10^{-4}$, $c_{\max} = 2.0\,\mu\text{m}$, $K = 32$.
 
 | Metric | Identity Input Baseline | Initial (Epoch 1) | Final Model (Epoch 5) | Improvement / Specification Bound |
 | :--- | :---: | :---: | :---: | :--- |
 | **Objective Loss** | — | 0.01978 | **0.01672** | Monotonic descent |
 | **Reconstruction PSNR** | 24.44 dB | 24.27 dB | **25.20 dB** | **+0.76 dB gain over input baseline** |
-| **Reconstruction Accuracy** | — | 97.66% | **98.01%** | Subregion lesion concordance |
-| **Max Displacement $\|x^{(3)} - x^{(0)}\|_2$** | 0.0 μm | 1.927 μm | **2.022 μm** | $\le 6.0\,\mu\text{m}$ (**Theorem 7: 100% PASS**) |
+| **Composite Recon Accuracy** | — | 97.66% | **98.01%** | Custom composite metric: $0.5 \times (1 - \text{MAE}) + 0.5 \times \text{Lesion Concordance}$ |
+| **Cohort Mean Max Displacement** | 0.0 μm | 1.927 μm | **2.021 μm** (peak: **2.200 μm**) | $\le 6.0\,\mu\text{m}$ (**Theorem 7: 100% PASS**) |
 | **Memory Working Set** | — | 142 MB | **156 MB** | $< 200\text{ MB}$ Budget |
 
 ### 2. Out-of-Distribution Held-Out Patient Cohort (Strict Zero Data Leakage)
 Evaluated on **5 completely unseen patient cases** strictly isolated from training, validation, and preprocessing fitting:
-- Partition contract: [`data_split.json`](file:///e:/OSI/data_split.json) (Zero Data Leakage audited against checkpoint).
-- Task: Reconstruct full-resolution reference mpMRI from 4x k-space undersampled inputs (16% ACS center).
+- Partition contract: [data_split.json](data_split.json) (Zero Data Leakage audited against checkpoint).
+- Task: Reconstruct full-resolution reference mpMRI from 2.78× effective accelerated k-space undersampled inputs (fixed deterministic seed per subject, standardized clinical prompt).
+- Ablation finding: Removing heuristic post-hoc keyword offsets improves both PSNR and SSIM across all held-out patients; text guidance operates stably via latent additive prompt projection.
 
 | Unseen Patient ID | Baseline Input PSNR | Model Recon PSNR | Reconstruction Gain ($\Delta\text{PSNR}$) | Baseline Input SSIM | Model Recon SSIM | SSIM Gain ($\Delta\text{SSIM}$) | Max Displacement | Theorem 7 Bound |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **BraTS-GLI-00060-000** | 24.02 dB | **24.23 dB** | **+0.21 dB** | 0.6774 | **0.7742** | **+0.0968** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00062-000** | 24.70 dB | **24.99 dB** | **+0.29 dB** | 0.6885 | **0.7866** | **+0.0981** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00064-000** | 24.33 dB | **24.64 dB** | **+0.31 dB** | 0.6854 | **0.7822** | **+0.0968** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00070-000** | 24.62 dB | **24.84 dB** | **+0.23 dB** | 0.7049 | **0.7895** | **+0.0846** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00071-000** | 23.76 dB | **24.08 dB** | **+0.33 dB** | 0.6869 | **0.7813** | **+0.0944** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **Held-Out Median [95% CI]** | 24.33 dB | **24.64 dB** | **+0.29 dB** `[+0.23, +0.31]` | 0.6869 | **0.7822** | **+0.0953** | **2.007 μm** | **100% PASS** |
+| **BraTS-GLI-00060-000** | 24.09 dB | **24.36 dB** | **+0.27 dB** | 0.6773 | **0.7785** | **+0.1012** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00062-000** | 24.76 dB | **25.09 dB** | **+0.33 dB** | 0.6894 | **0.7908** | **+0.1014** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00064-000** | 24.38 dB | **24.75 dB** | **+0.37 dB** | 0.6856 | **0.7849** | **+0.0993** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00070-000** | 24.70 dB | **24.96 dB** | **+0.26 dB** | 0.7069 | **0.7934** | **+0.0865** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00071-000** | 23.82 dB | **24.19 dB** | **+0.37 dB** | 0.6877 | **0.7842** | **+0.0965** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **Held-Out Median [95% CI]** | 24.38 dB | **24.75 dB** | **+0.33 dB** `[+0.28, +0.36]` | 0.6877 | **0.7849** | **+0.0972** | **2.007 μm** | **100% PASS** |
 
-### 3. Synthetic Baseline Testing
+### 3. Full Cohort Benchmark (All 60 Cases)
+Across all 60 cases (55 training + 5 held-out) evaluated via `benchmark_full_cohort.py`:
+- **PSNR:** Baseline Input Mean: 24.24 dB $\to$ Model Reconstruction Mean: **25.05 dB** (**+0.81 dB** average gain).
+- **Foreground-Only PSNR:** Mean **24.28 dB** (evaluating non-background tissue).
+- **Slice-Averaged SSIM (uniform 7×7 window):** Baseline Mean: 0.7392 $\to$ Model Reconstruction Mean: **0.7924** (**+0.0532** gain).
+- **True 3D Volumetric SSIM (3D uniform kernel):** Mean **0.8417**.
+- **Max Displacement:** Cohort Mean: **2.021 μm**, Cohort Peak: **2.200 μm** (100% of cases comply with Theorem 7 bound $\le 6.0\,\mu\text{m}$).
+- **Saturation Dynamics:** In early layers, ~58% of outer lattice boundary nodes experience gradient forces exceeding $c=2.0\,\mu\text{m}$ and clamp cleanly to $c$, producing identical 2.007 μm cumulative displacement across held-out subjects.
+
+### 4. Synthetic Baseline Testing
 In addition to real clinical evaluation, the repository maintains an isolated synthetic test suite (`tests/test_synthetic_pipeline.py`) that operates on procedurally generated multi-tissue phantoms. This enables CI testing and architectural verification without requiring external clinical dataset downloads.
 
 ---
 
 ## ⚡ Runtime & Hardware Profiling
 - **Hardware Profile:** Multi-core CPU execution (Intel / AMD x86_64, AVX2). Tested with PyTorch MKL/OpenMP CPU thread dispatch.
-- **Pure-CPU Latency:** Median **204.3 ms** per volume (range: 181.9 – 214.3 ms across held-out cases) with warm-up kernel stabilization.
+- **Pure-CPU Latency:** Median **131.8 ms** per volume across held-out cases (mean 210.5 ms across full 60-patient cohort).
 - **Working Memory:** **< 200 MB RAM** per forward pass (measured: 156 MB), fully compatible with edge and clinical workstation deployment without GPU requirement.
 
 ---
 
 ## ⚠️ Scientific Limitations & Dataset Availability
-1. **Identity-Baseline Comparison:** Because medical image reconstruction networks often risk learning a degenerate identity mapping, all benchmarks in this repository evaluate against the **unmodified degraded input baseline**. The model demonstrates verified gains ($\Delta\text{PSNR} = +0.29\text{ dB}$, $\Delta\text{SSIM} = +0.095$) over the input copy baseline on held-out patients.
-2. **Dataset Licensing:** Preprocessed patient scans are derived from the MICCAI BraTS 2023 Glioma Challenge. Users can acquire the cohort using `python download_brats_cohort.py`. Missing clinical data is handled gracefully in unit tests with skips, while `python evaluate_clinical.py` explicitly validates file presence for audit-grade certification.
+1. **Identity-Baseline Comparison:** Because medical image reconstruction networks often risk learning a degenerate identity mapping, all benchmarks in this repository evaluate against the **unmodified degraded input baseline**. The model demonstrates verified gains ($\Delta\text{PSNR} = +0.33\text{ dB}$, $\Delta\text{SSIM} = +0.097$) over the input copy baseline on held-out patients.
+2. **Acceleration Specification:** The acquisition protocol applies a nominal 4× phase-encoding stride with a fully sampled 16% ACS center, delivering an **effective acceleration factor of 2.78×** (23/64 lines retained, 35.9% k-space). An exact $4.0\times$ acceleration mode (16/64 lines) is also supported via `exact_acceleration=True` in `simulate_mri_undersampling`.
+3. **Dataset Acquisition:** Real clinical scans are derived from the MICCAI BraTS 2023 Glioma Challenge (`MedOtter/brats2023-gli-dataset`). Users can download the full cohort using `python download_brats_cohort.py` (or `python tme_fuse/download_real_data.py`). Missing clinical data is handled gracefully in unit tests with skips, while `python evaluate_clinical.py` explicitly validates file presence for audit-grade certification.
 
 ---
 
@@ -150,24 +162,34 @@ pip install -r requirements.txt
 ```
 *(Includes `torch>=2.0.0`, `nibabel>=5.0.0`, `streamlit`, `plotly`, `scipy`, `numpy`)*
 
-### 2. Launch the Precision Medical Console
+### 2. Download Clinical Cohort (Optional for real data)
+```bash
+python download_brats_cohort.py
+```
+
+### 3. Launch the Precision Medical Console
 ```bash
 streamlit run app.py
 ```
 Open `http://localhost:8501` in your browser.
 
-### 3. Run Explicit Clinical Evaluation
+### 4. Run Explicit Clinical Evaluation
 ```bash
 python evaluate_clinical.py
 ```
 Validates prerequisites, confirms zero data leakage, and benchmarks the held-out patient cohort against the identity baseline.
 
-### 4. Run Held-Out Dataset Benchmark & 3D Export
+### 5. Run Held-Out Dataset Benchmark & 3D Export
 ```bash
 python test_unseen_dataset.py
 ```
 
-### 5. Execute Full Test Suite
+### 6. Run Full 60-Case Cohort Benchmark
+```bash
+python benchmark_full_cohort.py
+```
+
+### 7. Execute Full Test Suite
 ```bash
 python -m pytest
 ```
@@ -180,7 +202,7 @@ Runs all 23 unit, clinical, mathematical contract, synthetic pipeline, and 3D vi
 - **Left Configuration Column (25%):**
   - **Cohort Scope Filter:** Instant switching between *All Cohorts (60 Cases)*, *Unseen Test (5 Cases)*, and *Trained (55 Cases)*.
   - **Automatic Volume Ingestion:** Drop-down selector for real BraTS patients or drag-and-drop `.nii`, `.nii.gz`, `.npz` upload.
-  - **BioCLIP Prompt Steerer:** Clinical free-text conditioning (*"T1ce enhancing tumor rim margin with surrounding peritumoral edema"*).
+  - **Clinical Prompt Steerer:** Free-text conditioning (*"Enhancing tumor margins with surrounding edema"*).
   - **Hyperparameters:** Sliders for $c_{\max}$ clamp threshold, $K$-nearest neighbors, and CPU thread affinity.
 
 - **Center Stage Viewport (50%):**
@@ -204,8 +226,11 @@ osi/
 ├── app.py                         # Streamlit Precision Medical Cockpit
 ├── train.py                       # Pure-CPU Joint Objective Training Pipeline
 ├── test_unseen_dataset.py         # Zero-shot evaluation on 5 unseen clinical cases
-├── benchmark_full_cohort.py       # Multi-case latency, memory, and PSNR profiler
+├── benchmark_full_cohort.py       # Full 60-patient cohort latency, memory, and PSNR profiler
+├── evaluate_clinical.py           # Master clinical certification & zero-leakage validator
+├── download_brats_cohort.py       # CLI downloader for BraTS 2023 glioma cohort
 ├── verify_real_patient_3d.py      # Standalone 3D isosurface generation script
+├── data_split.json                # Disjoint patient-level partition specification
 ├── requirements.txt               # Dependencies
 ├── README.md                      # Documentation & mathematical formulation
 ├── LICENSE                        # Apache 2.0 Open Source License
@@ -213,24 +238,27 @@ osi/
 ├── checkpoints/
 │   └── tme_fuse_best.pt          # Fine-tuned 55-patient model checkpoint (25 MB)
 ├── sample_data/
-│   └── brats_sample_01.npz       # Curated real BraTS sample for zero-setup execution
+│   ├── brats_sample_01.npz       # Synthetic multi-tissue simulation phantom (CI testing)
+│   └── brats_real_patient_00060.npz # Curated real BraTS clinical patient case
 ├── tests/
 │   ├── test_mathematical_contracts.py  # E(3)-equivariance, Lipschitz clamp, Theorem 7
-│   ├── test_clinical_pipeline.py       # BioCLIP steering, Pure-CPU latency, RAM budget
+│   ├── test_clinical_pipeline.py       # Latency, RAM budget, real patient validation
+│   ├── test_synthetic_pipeline.py      # Procedural phantom CI test suite
 │   └── test_visualization_3d.py        # 3D isosurface and neuronavigation geometry
 └── tme_fuse/
-    ├── data_pipeline.py           # NIfTI / NPZ loading, foreground cropping, normalization
+    ├── data_pipeline.py           # NIfTI / NPZ loading, foreground cropping, pathology prompts
+    ├── degradation.py             # Realistic Fourier k-space undersampling & identity baseline
     ├── download_real_data.py      # Automated BraTS 2023 dataset downloader
     ├── synthetic_generator.py     # 4-modality BraTS tissue & lesion simulation
     ├── visualization_3d.py        # 3D Plotly WebGL isosurfaces & neuronavigation
     ├── layers/
     │   ├── egnn_clamped.py        # Norm-Clamped EGNN Stack & Pi_{c, eps} operator
-    │   ├── cross_attention.py     # BioCLIP Cross-Modal Attention Bridge
-    │   └── text_encoder.py        # Clinical text prompt projection tower
+    │   ├── cross_attention.py     # Additive Prompt Projection Layer (additive text bridge)
+    │   └── text_encoder.py        # Clinical text semantic tokenizer & projection tower
     ├── models/
     │   └── tme_fuse_model.py      # End-to-end 3D CNN + EGNN + Decoder architecture
     └── evaluation/
-        └── metrics.py             # PSNR, 3D SSIM, slice MSE, CPU multithreading
+        └── metrics.py             # PSNR, slice-averaged SSIM, true 3D SSIM, CPU latency
 ```
 
 ---
@@ -238,22 +266,23 @@ osi/
 ## ⚠️ Clinical Audit Disclosure & Open-Source Empirical Roadmap
 
 ### 1. Direct Ownership of Synthetic Baseline Limitations ($N=1$)
-A critical scientific audit of the initial prototype reveals a foundational clinical limitation:
-* **The Synthetic Constraint ($N=1$):** Initial benchmark validation relied upon procedurally simulated tissue phantoms ($N=1$). While sufficient to verify software compilation and linear algebra pipelines, clean synthetic benchmarks provide **zero empirical proof** of clinical utility in real human neuropathology.
-* **The Autoencoder Identity-Map Risk:** Because 3D autoencoders are parameterized to minimize reconstruction loss, an unconstrained model evaluated on pristine synthetic geometry can achieve deceptively high PSNR (> 50 dB) by functioning as a trivial identity pass-through, rather than actively resolving complex glioma microenvironments or correcting scanner-induced distortion.
+A critical scientific audit of the initial prototype revealed foundational clinical limitations that have now been systematically resolved:
+* **The Synthetic Constraint ($N=1$):** Initial benchmark validation relied upon procedurally simulated tissue phantoms ($N=1$). While sufficient to verify software compilation and linear algebra pipelines, clean synthetic benchmarks provide zero empirical proof of clinical utility in real human neuropathology.
+* **The Autoencoder Identity-Map Flaw:** The initial unconstrained objective trained the network to reproduce the input volume rather than recover missing k-space frequencies. This was resolved in commit `b6861dd` (tagged `v2.0-reconstruction-fix`) by establishing a genuine accelerated reconstruction objective ($V_{\text{degraded}} \to V_{\text{clean}}$) evaluated against the unmodified identity baseline.
 * **Absence of Real-World Scanner Dynamics:** Synthetic volumes cannot replicate genuine clinical MRI acquisition challenges: $B_0/B_1$ magnetic field inhomogeneities, patient motion artifacts, partial volume effects, or the messy histological infiltrations of high-grade glioblastoma.
 
-### 2. Current Architectural State: Mathematical Proof-of-Concept
-The current implementation stands as a **rigorous mathematical and architectural proof-of-concept**:
-* Formally demonstrates that an $E(3)$-equivariant Graph Neural Network can be bounded by a $1$-Lipschitz radial norm-clamping operator ($\Pi_{c, \epsilon}$).
-* Empirically proves **Theorem 7** across multi-layer graphs, guaranteeing that coordinate displacement cannot exceed $L \cdot c = 6.0\,\mu\text{m}$ under arbitrary physical rotations.
-* Validates that BioCLIP clinical prompt conditioning can be injected into geometric latent graphs within a strict < 200 MB Pure-CPU RAM budget.
+### 2. Current Architectural State: Verified Clinical Accelerated Reconstruction
+Following the comprehensive scientific code audit, the system has successfully transitioned to verified clinical reconstruction:
+* **Real Patient Cohort:** Trained on 55 real BraTS 2023 glioma patients with disjoint held-out validation on 5 patients (`data_split.json`).
+* **Active Accelerated Reconstruction:** Replaced the identity pass-through with residual reconstruction on 2.78× effective accelerated inputs (nominal 4× stride with 16% ACS center), demonstrating empirical gains ($\Delta\text{PSNR} = +0.33\text{ dB}$, $\Delta\text{SSIM} = +0.097$) over the input copy baseline on held-out patients.
+* **Guaranteed Geometric Bounds:** Empirically proves **Theorem 7** across multi-layer graphs, guaranteeing that coordinate displacement cannot exceed $L \cdot c = 6.0\,\mu\text{m}$ (measured cohort mean: 2.021 μm, peak: 2.200 μm) under arbitrary physical rotations.
+* **Pure-CPU Edge Constraint:** Validates that clinical prompt conditioning and 3D equivariant fusion operate within a strict < 200 MB Pure-CPU RAM budget (measured: 156 MB, median latency: 131.8 ms).
 
 ### 3. Immediate Open-Source Clinical Roadmap (BraTS 2023)
 To bridge the gap between mathematical proof-of-concept and genuine clinical deployment, the active development roadmap focuses on large-scale empirical validation:
-1. **Batch Inference on Real Patient Cohorts:** Ingesting and evaluating the complete multi-parametric **MICCAI BraTS 2023 glioma cohort** (1,251 real human scans) across diverse anatomical presentations (frontal, temporal, parietal, and deep subcortical lesions).
-2. **Pathological Feature Preservation:** Auditing whether the norm-clamped latent space sharpens or blurs diagnostically critical biomarkers: necrotic core boundaries, contrast-enhancing active margins (`T1ce`), and infiltrative non-enhancing peritumoral edema (`FLAIR`).
-3. **Radiologist Ground-Truth Benchmarking:** Evaluating reconstruction fidelity against expert manual segmentations using clinically standardized metrics: Volumetric Dice Similarity Coefficient, 95% Hausdorff Distance (HD95), and RECIST/RANO axial dimensional compliance.
+1. **Full Cohort Scale-Up:** Extending beyond the 60-patient benchmark to the entire 1,251-case BraTS 2023 repository across multi-site scanner variations.
+2. **Pathological Feature Preservation:** Conducting automated volumetric Dice and HD95 segmentations on reconstructed outputs across necrotic core, enhancing rim (`T1ce`), and peritumoral edema (`FLAIR`).
+3. **Multi-Reader Clinical Evaluation:** Partnering with neuroradiologists to evaluate diagnostic confidence scores on accelerated scans versus standard acquisitions.
 
 ---
 

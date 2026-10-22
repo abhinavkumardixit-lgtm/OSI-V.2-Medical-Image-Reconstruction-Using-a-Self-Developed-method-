@@ -35,11 +35,16 @@ def compute_psnr(
     pred: Union[torch.Tensor, np.ndarray],
     target: Union[torch.Tensor, np.ndarray],
     data_range: float = 1.0,
+    foreground_only: bool = False,
+    foreground_thresh: float = 0.05,
     eps: float = 1e-12,
 ) -> float:
     """
     Calculates Peak Signal-to-Noise Ratio (PSNR) in decibels (dB) consistently.
     Formula: 10 * log10(data_range^2 / max(MSE, eps))
+    
+    If foreground_only=True, restricts evaluation strictly to non-background voxels
+    where target > foreground_thresh (e.g. brain tissue and tumor mass).
     Returns float("inf") if MSE is identically zero.
     """
     if isinstance(pred, np.ndarray):
@@ -52,11 +57,18 @@ def compute_psnr(
     else:
         target_t = target.detach().cpu().float()
 
-    mse = torch.mean((pred_t - target_t) ** 2).item()
+    if foreground_only:
+        fg_mask = target_t > foreground_thresh
+        if fg_mask.sum() > 0:
+            mse = torch.mean((pred_t[fg_mask] - target_t[fg_mask]) ** 2).item()
+        else:
+            mse = torch.mean((pred_t - target_t) ** 2).item()
+    else:
+        mse = torch.mean((pred_t - target_t) ** 2).item()
+
     if mse == 0.0:
         return float("inf")
     return float(10.0 * math.log10((data_range ** 2) / max(mse, eps)))
-
 
 
 def compute_ssim_2d_slice(
@@ -68,7 +80,7 @@ def compute_ssim_2d_slice(
     win_size: int = 7,
 ) -> float:
     """
-    Computes Structural Similarity Index (SSIM) on a 2D slice using sliding Gaussian window.
+    Computes Structural Similarity Index (SSIM) on a 2D slice using a uniform 7x7 sliding window.
     """
     c1 = (k1 * data_range) ** 2
     c2 = (k2 * data_range) ** 2
@@ -98,13 +110,14 @@ def compute_ssim_2d_slice(
     return float(np.mean(ssim_map))
 
 
-def compute_ssim_3d(
+def compute_slice_averaged_ssim(
     gt: np.ndarray,
     recon: np.ndarray,
     step: int = 4,
 ) -> Tuple[float, Dict[str, float]]:
     """
-    Computes average 3D SSIM across all 4 channels by sampling representative slices.
+    Computes 2D slice-wise SSIM with uniform 7x7 sliding window averaged across axial slices
+    and multi-parametric channels (skipping empty background slices).
     gt, recon: (4, D, H, W) in [0, 1]
     """
     C, D, H, W = gt.shape
@@ -127,6 +140,56 @@ def compute_ssim_3d(
 
     overall_ssim = float(np.mean(list(channel_ssims.values())))
     return overall_ssim, channel_ssims
+
+
+# Backwards compatibility alias
+compute_ssim_3d = compute_slice_averaged_ssim
+
+
+def compute_ssim_3d_volumetric(
+    gt_vol: np.ndarray,
+    recon_vol: np.ndarray,
+    data_range: float = 1.0,
+    win_size: int = 7,
+) -> Tuple[float, Dict[str, float]]:
+    """
+    Computes true 3D volumetric Structural Similarity Index (SSIM) across the entire
+    continuous (D, H, W) lattice using a 3D uniform spatial kernel.
+    """
+    from scipy.ndimage import uniform_filter
+
+    if gt_vol.ndim == 3:
+        gt_vol = gt_vol[np.newaxis, ...]
+        recon_vol = recon_vol[np.newaxis, ...]
+
+    C = gt_vol.shape[0]
+    c1 = (0.01 * data_range) ** 2
+    c2 = (0.03 * data_range) ** 2
+    modality_names = ["T1", "T1ce", "T2", "FLAIR"]
+    channel_scores = {}
+
+    for c in range(C):
+        gt = gt_vol[c]
+        rc = recon_vol[c]
+
+        mu1 = uniform_filter(gt, size=win_size)
+        mu2 = uniform_filter(rc, size=win_size)
+        mu1_sq = mu1 ** 2
+        mu2_sq = mu2 ** 2
+        mu1_mu2 = mu1 * mu2
+
+        sigma1_sq = np.maximum(uniform_filter(gt ** 2, size=win_size) - mu1_sq, 0.0)
+        sigma2_sq = np.maximum(uniform_filter(rc ** 2, size=win_size) - mu2_sq, 0.0)
+        sigma12 = uniform_filter(gt * rc, size=win_size) - mu1_mu2
+
+        ssim_map = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / (
+            (mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2) + 1e-10
+        )
+        c_name = modality_names[c] if c < len(modality_names) else f"Ch_{c}"
+        channel_scores[c_name] = float(np.mean(ssim_map))
+
+    mean_vol_ssim = float(np.mean(list(channel_scores.values())))
+    return mean_vol_ssim, channel_scores
 
 
 def compute_slice_metrics(
@@ -195,16 +258,18 @@ def benchmark_reconstruction(
     gt_vol = np.clip(gt_vol, 0.0, 1.0)
     recon_vol = np.clip(recon_vol, 0.0, 1.0)
 
-    # 1. PSNR overall & per modality
+    # 1. PSNR overall & foreground-only & per modality
     overall_psnr = compute_psnr(gt_vol, recon_vol)
+    foreground_psnr = compute_psnr(gt_vol, recon_vol, foreground_only=True)
     modality_names = ["T1", "T1ce", "T2", "FLAIR"]
     per_channel_psnr = {}
     for c in range(gt_vol.shape[0]):
         c_name = modality_names[c] if c < len(modality_names) else f"Ch_{c}"
         per_channel_psnr[c_name] = compute_psnr(gt_vol[c], recon_vol[c])
 
-    # 2. SSIM
-    overall_ssim, per_channel_ssim = compute_ssim_3d(gt_vol, recon_vol)
+    # 2. SSIM (both slice-averaged 2D and true volumetric 3D)
+    overall_ssim, per_channel_ssim = compute_slice_averaged_ssim(gt_vol, recon_vol)
+    volumetric_ssim, _ = compute_ssim_3d_volumetric(gt_vol, recon_vol)
 
     # 3. Mean Squared Error (MSE) & Max Error
     abs_diff = np.abs(gt_vol - recon_vol)
@@ -241,7 +306,10 @@ def benchmark_reconstruction(
 
     return {
         "overall_psnr_db": overall_psnr,
+        "foreground_psnr_db": foreground_psnr,
         "overall_ssim": overall_ssim,
+        "slice_averaged_ssim": overall_ssim,
+        "volumetric_3d_ssim": volumetric_ssim,
         "mse": mse,
         "max_error": max_error,
         "latency_ms": latency_ms,

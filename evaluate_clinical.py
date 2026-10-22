@@ -144,12 +144,17 @@ def run_clinical_validation():
     base_ssims, recon_ssims = [], []
     displacements, latencies = [], []
 
-    for fpath in sorted(held_out_files):
+    for idx, fpath in enumerate(sorted(held_out_files)):
         subj_name = os.path.splitext(os.path.basename(fpath))[0]
         clean_tensor, _ = load_volume_from_file_or_bytes(fpath)
 
-        # 4x k-space accelerated MRI degradation
-        degraded_tensor = simulate_mri_undersampling(clean_tensor, acceleration=4, center_fraction=0.16)
+        # 4x k-space accelerated MRI degradation with fixed deterministic seed per subject
+        degraded_tensor = simulate_mri_undersampling(
+            clean_tensor,
+            acceleration=4,
+            center_fraction=0.16,
+            seed=42 + idx,
+        )
 
         t0 = time.perf_counter()
         with torch.no_grad():

@@ -181,5 +181,9 @@ def prepare_real_brats_dataset(
     return cleaned_files
 
 
+def main():
+    prepare_real_brats_dataset(target_count=60, max_workers=5)
+
+
 if __name__ == "__main__":
-    prepare_real_brats_dataset(target_count=50, max_workers=5)
+    main()

@@ -9,10 +9,11 @@ import torch
 import torch.nn as nn
 
 
-class CrossAttentionLayer(nn.Module):
+class AdditivePromptProjectionLayer(nn.Module):
     """
-    Global Additive Linear Prompt Projection Layer fusing text conditioning
-    into spatial latent tokens without degenerate single-key softmax attention collapse.
+    Global Additive Linear Prompt Projection Layer fusing clinical prompt embeddings
+    into spatial latent tokens via linear projection, LayerNorm, and residual addition.
+    Replaces degenerate single-key softmax cross-attention with stable additive modulation.
     """
 
     def __init__(
@@ -68,4 +69,8 @@ class CrossAttentionLayer(nn.Module):
         proj_weights = gate.unsqueeze(1).expand(B, self.num_heads, N, 1)
 
         return h_out, proj_weights
+
+
+# Backwards compatibility alias
+CrossAttentionLayer = AdditivePromptProjectionLayer
 

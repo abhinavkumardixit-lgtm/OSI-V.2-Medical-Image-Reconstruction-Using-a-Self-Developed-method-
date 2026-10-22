@@ -15,8 +15,9 @@ def simulate_mri_undersampling(
     clean_volume: Union[torch.Tensor, np.ndarray],
     acceleration: int = 4,
     center_fraction: float = 0.16,
+    exact_acceleration: bool = False,
     noise_sigma: float = 0.005,
-    seed: Optional[int] = None,
+    seed: Optional[int] = 42,
 ) -> torch.Tensor:
     """
     Simulates accelerated MRI acquisition via 3D Fourier k-space undersampling.
@@ -24,6 +25,8 @@ def simulate_mri_undersampling(
     1. Transforms real multi-sequence volume (B, 4, D, H, W) to Fourier domain.
     2. Enforces fully-sampled low-frequency Auto-Calibration Signal (ACS) center.
     3. Equispaced/randomly subsamples high-frequency phase-encoding lines by acceleration factor.
+       - Nominal acceleration=4 with center_fraction=0.16 retains 23/64 lines (~2.78x effective acceleration).
+       - If exact_acceleration=True, exactly round(W / acceleration) lines are sampled (e.g. 16/64 = 4.0x).
     4. Inverts back to image domain, creating authentic aliasing artifacts and high-frequency loss.
     
     Returns:
@@ -45,7 +48,7 @@ def simulate_mri_undersampling(
     B, C, D, H, W = tensor.shape
     device = tensor.device
 
-    # Set generator seed if provided for reproducible evaluation
+    # Set generator seed if provided for reproducible evaluation (defaults to 42)
     if seed is not None:
         g = torch.Generator(device=device)
         g.manual_seed(seed)
@@ -62,15 +65,27 @@ def simulate_mri_undersampling(
     # Fully sampled low-frequency center (contrast & gross anatomy)
     mask_1d[pad:pad + num_low_freqs] = 1.0
 
-    # Subsample peripheral high frequencies by acceleration factor
-    for idx in range(0, W, acceleration):
-        mask_1d[idx] = 1.0
+    if exact_acceleration:
+        # Deliver exact acceleration factor (e.g. exactly W // acceleration lines sampled)
+        target_lines = max(num_low_freqs, int(round(W / acceleration)))
+        remaining_lines = target_lines - num_low_freqs
+        if remaining_lines > 0:
+            outer_indices = [i for i in range(W) if i < pad or i >= pad + num_low_freqs]
+            step = max(1, len(outer_indices) // remaining_lines)
+            for i in range(0, len(outer_indices), step):
+                if int(mask_1d.sum().item()) >= target_lines:
+                    break
+                mask_1d[outer_indices[i]] = 1.0
+    else:
+        # Nominal stride: subsample peripheral high frequencies by acceleration factor
+        for idx in range(0, W, acceleration):
+            mask_1d[idx] = 1.0
 
     # Reshape for broadcasting: (1, 1, 1, 1, W)
     mask_5d = mask_1d.view(1, 1, 1, 1, W)
     undersampled_kspace = kspace * mask_5d
 
-    # Optional clinical Rician / complex Gaussian measurement noise
+    # Clinical complex Gaussian measurement noise
     if noise_sigma > 0:
         if g is not None:
             noise_real = torch.randn(kspace.shape, generator=g, device=device) * noise_sigma

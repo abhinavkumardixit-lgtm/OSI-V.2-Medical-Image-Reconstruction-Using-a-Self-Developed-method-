@@ -271,6 +271,10 @@ class TMEFuseEGNNStack(nn.Module):
             "max_cumulative_displacement_um": max_cumulative,
             "mean_cumulative_displacement_um": mean_cumulative,
             "theorem_7_satisfied": bound_satisfied,
+            "raw_step_norms": [l["mean_raw_delta"] for l in layer_telemetries],
+            "layer_clamp_fractions": [l["clamped_fraction"] for l in layer_telemetries],
+            "max_clamped_delta_per_layer": [l["max_clamped_delta"] for l in layer_telemetries],
+            "saturation_observed": any(l["clamped_fraction"] > 0.05 for l in layer_telemetries),
             "layers": layer_telemetries,
         }
 
