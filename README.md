@@ -278,8 +278,8 @@ A critical scientific audit of the initial prototype revealed foundational clini
 ### 2. Current Architectural State: Verified Clinical Accelerated Reconstruction
 Following the comprehensive scientific code audit, the system has successfully transitioned to verified clinical reconstruction:
 * **Real Patient Cohort:** Trained on 55 real BraTS 2023 glioma patients with disjoint held-out validation on 5 patients (`data_split.json`).
-* **Active Accelerated Reconstruction:** Replaced the identity pass-through with residual reconstruction on 2.78× effective accelerated inputs (nominal 4× stride with 16% ACS center), demonstrating empirical gains ($\Delta\text{PSNR} = +0.33\text{ dB}$, $\Delta\text{SSIM} = +0.097$) over the input copy baseline on held-out patients.
-* **Guaranteed Geometric Bounds:** Empirically proves **Theorem 7** across multi-layer graphs, guaranteeing that coordinate displacement cannot exceed $L \cdot c = 6.0\,\mu\text{m}$ (measured cohort mean: 2.021 μm, peak: 2.200 μm) under arbitrary physical rotations.
+* **Active Accelerated Reconstruction:** Replaced the identity pass-through with residual reconstruction on 2.78× effective accelerated inputs (nominal 4× stride with 16% ACS center), demonstrating empirical gains ($\Delta\text{PSNR} = +0.32\text{ dB}$, $\Delta\text{SSIM} = +0.098$) over the input copy baseline on held-out patients.
+* **Guaranteed Geometric Bounds:** Empirically proves **Theorem 7** across multi-layer graphs, guaranteeing that coordinate displacement cannot exceed $L \cdot c = 6.0\,\mu\text{m}$ (measured cohort mean: 2.022 μm, peak: 2.207 μm) under arbitrary physical rotations.
 * **Pure-CPU Edge Constraint:** Validates that clinical prompt conditioning and 3D equivariant fusion operate within a strict < 200 MB Pure-CPU RAM budget (measured: 156 MB, median latency: 131.8 ms).
 
 ### 3. Immediate Open-Source Clinical Roadmap (BraTS 2023)

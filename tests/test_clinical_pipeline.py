@@ -15,7 +15,7 @@ from tme_fuse.data_pipeline import load_volume_from_file_or_bytes
 from tme_fuse.evaluation.metrics import (
     benchmark_reconstruction,
     compute_psnr,
-    compute_ssim_3d,
+    compute_slice_averaged_ssim,
     configure_cpu_multithreading,
 )
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
@@ -101,7 +101,7 @@ class TestClinicalModelInference:
 
             base_psnr = compute_psnr(in_np, gt_np, data_range=1.0)
             recon_psnr = compute_psnr(rc_np, gt_np, data_range=1.0)
-            ssim_val, _ = compute_ssim_3d(rc_np, gt_np, step=8)
+            ssim_val, _ = compute_slice_averaged_ssim(rc_np, gt_np, step=8)
 
             base_psnr_records.append(base_psnr)
             psnr_records.append(recon_psnr)

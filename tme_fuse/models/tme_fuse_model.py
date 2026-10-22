@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 from tme_fuse.layers.egnn_clamped import TMEFuseEGNNStack
 from tme_fuse.layers.cross_attention import AdditivePromptProjectionLayer, CrossAttentionLayer
-from tme_fuse.layers.text_encoder import ClinicalTextEncoder, BioCLIPTextEncoder
+from tme_fuse.layers.text_encoder import ClinicalTextEncoder
 
 
 class ConvBlock3D(nn.Module):
