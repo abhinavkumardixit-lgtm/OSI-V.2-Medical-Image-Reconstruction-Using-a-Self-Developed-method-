@@ -210,6 +210,28 @@ osi/
 
 ---
 
+## ⚠️ Clinical Audit Disclosure & Open-Source Empirical Roadmap
+
+### 1. Direct Ownership of Synthetic Baseline Limitations ($N=1$)
+A critical scientific audit of the initial prototype reveals a foundational clinical limitation:
+* **The Synthetic Constraint ($N=1$):** Initial benchmark validation relied upon procedurally simulated tissue phantoms ($N=1$). While sufficient to verify software compilation and linear algebra pipelines, clean synthetic benchmarks provide **zero empirical proof** of clinical utility in real human neuropathology.
+* **The Autoencoder Identity-Map Risk:** Because 3D autoencoders are parameterized to minimize reconstruction loss, an unconstrained model evaluated on pristine synthetic geometry can achieve deceptively high PSNR (> 50 dB) by functioning as a trivial identity pass-through, rather than actively resolving complex glioma microenvironments or correcting scanner-induced distortion.
+* **Absence of Real-World Scanner Dynamics:** Synthetic volumes cannot replicate genuine clinical MRI acquisition challenges: $B_0/B_1$ magnetic field inhomogeneities, patient motion artifacts, partial volume effects, or the messy histological infiltrations of high-grade glioblastoma.
+
+### 2. Current Architectural State: Mathematical Proof-of-Concept
+The current implementation stands as a **rigorous mathematical and architectural proof-of-concept**:
+* Formally demonstrates that an $E(3)$-equivariant Graph Neural Network can be bounded by a $1$-Lipschitz radial norm-clamping operator ($\Pi_{c, \epsilon}$).
+* Empirically proves **Theorem 7** across multi-layer graphs, guaranteeing that coordinate displacement cannot exceed $L \cdot c = 6.0\,\mu\text{m}$ under arbitrary physical rotations.
+* Validates that BioCLIP clinical prompt conditioning can be injected into geometric latent graphs within a strict < 200 MB Pure-CPU RAM budget.
+
+### 3. Immediate Open-Source Clinical Roadmap (BraTS 2023)
+To bridge the gap between mathematical proof-of-concept and genuine clinical deployment, the active development roadmap focuses on large-scale empirical validation:
+1. **Batch Inference on Real Patient Cohorts:** Ingesting and evaluating the complete multi-parametric **MICCAI BraTS 2023 glioma cohort** (1,251 real human scans) across diverse anatomical presentations (frontal, temporal, parietal, and deep subcortical lesions).
+2. **Pathological Feature Preservation:** Auditing whether the norm-clamped latent space sharpens or blurs diagnostically critical biomarkers: necrotic core boundaries, contrast-enhancing active margins (`T1ce`), and infiltrative non-enhancing peritumoral edema (`FLAIR`).
+3. **Radiologist Ground-Truth Benchmarking:** Evaluating reconstruction fidelity against expert manual segmentations using clinically standardized metrics: Volumetric Dice Similarity Coefficient, 95% Hausdorff Distance (HD95), and RECIST/RANO axial dimensional compliance.
+
+---
+
 ## 📜 Citation & License
 
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.
