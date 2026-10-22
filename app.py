@@ -511,21 +511,30 @@ with col_center:
     with sub_col3:
         brightness_gain = st.slider("Window Brightness", 0.5, 2.0, 1.0, 0.1)
 
-    # Function to build side-by-side Plotly heatmaps
+    # Function to build side-by-side Plotly heatmaps with clean non-overlapping headers
     def render_tri_view(gt_slice, rc_slice, diff_slice, slice_idx, plane_title):
         gt_disp = np.clip(gt_slice * brightness_gain, 0.0, 1.0)
         rc_disp = np.clip(rc_slice * brightness_gain, 0.0, 1.0)
         diff_disp = np.clip(diff_slice * error_scale, 0.0, 1.0)
 
+        # Concise modality label to prevent title collisions
+        short_mod_map = {
+            "T1 (Native)": "T1",
+            "T1ce (Contrast-Enhanced)": "T1ce",
+            "T2 (T2-Weighted)": "T2",
+            "FLAIR (Fluid Attenuated)": "FLAIR",
+        }
+        short_mod = short_mod_map.get(selected_modality_str, selected_modality_str.split()[0])
+
         from plotly.subplots import make_subplots
         fig = make_subplots(
             rows=1, cols=3,
             subplot_titles=(
-                f"Ground Truth ({selected_modality_str})",
-                f"TME-FUSE Recon [{slice_idx}]",
-                f"Absolute Difference Error (|Δ| × {error_scale}x)",
+                f"Ground Truth ({short_mod})",
+                f"Reconstructed ({plane_title} {slice_idx})",
+                f"|Δ| Error ({error_scale:.1f}x)",
             ),
-            horizontal_spacing=0.03,
+            horizontal_spacing=0.04,
         )
 
         fig.add_trace(go.Heatmap(z=gt_disp, colorscale=cmap_name, showscale=False), row=1, col=1)
@@ -535,12 +544,15 @@ with col_center:
         fig.update_xaxes(showticklabels=False, zeroline=False)
         fig.update_yaxes(showticklabels=False, zeroline=False, autorange="reversed")
         fig.update_layout(
-            margin=dict(l=0, r=0, t=30, b=0),
+            margin=dict(l=6, r=6, t=32, b=6),
             height=280,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="JetBrains Mono, monospace", size=11, color="#94a3b8"),
         )
+        # Format annotations cleanly so titles never collide
+        for ann in fig["layout"]["annotations"]:
+            ann["font"] = dict(family="JetBrains Mono, monospace", size=10, color="#94a3b8")
+            ann["y"] = 1.08
         return fig
 
     # Tab 1: 3D Brain & Tumor Isosurface
