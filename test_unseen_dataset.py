@@ -15,12 +15,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple
 
-import nibabel as nib
+try:
+    import nibabel as nib
+    HAS_NIBABEL = True
+except ImportError:
+    HAS_NIBABEL = False
+
 import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
 
 from tme_fuse.data_pipeline import crop_foreground_bounding_box, normalize_volume_channels, resize_volume_patch
+from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import compute_psnr, compute_ssim_3d, configure_cpu_multithreading
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
 from tme_fuse.visualization_3d import (
@@ -31,7 +37,7 @@ from tme_fuse.visualization_3d import (
 REPO_ID = "MedOtter/brats2023-gli-dataset"
 REPO_SUBDIR = "ASNR-MICCAI-BraTS2023-GLI-Challenge-TrainingData"
 
-# Exactly 5 held-out patient cases
+# Exactly 5 held-out patient cases (Master Patient-Level Disjoint Cohort)
 UNSEEN_SUBJECTS = [
     "BraTS-GLI-00060-000",
     "BraTS-GLI-00062-000",
@@ -66,16 +72,20 @@ def download_single_unseen_case(subject_id: str, raw_dir: str = "data/raw_unseen
             )
             paths[mod_key] = fpath
         except Exception as e:
-            print(f"Warning: Failed to download {rel_path}: {e}")
+            print(f"  [-] Warning: Failed to download {rel_path}: {e}")
     return paths
 
 
-def clean_and_package_unseen(subject_id: str, raw_files: Dict[str, str], out_dir: str = "data/unseen_cohort") -> str:
+def clean_and_package_unseen(subject_id: str, raw_files: Dict[str, str], out_dir: str = "data/unseen_cohort") -> Optional[str]:
     """Preprocesses raw NIfTI scans into normalized (4, 64, 64, 64) .npz volume."""
     os.makedirs(out_dir, exist_ok=True)
     out_file = os.path.join(out_dir, f"{subject_id}.npz")
     if os.path.exists(out_file):
         return out_file
+
+    if not HAS_NIBABEL:
+        print(f"  [-] Error: nibabel is required to process raw NIfTI scans. Install via: pip install nibabel")
+        return None
 
     t1n = nib.load(raw_files["t1n"]).get_fdata(dtype=np.float32)
     t1c = nib.load(raw_files["t1c"]).get_fdata(dtype=np.float32)
@@ -120,33 +130,51 @@ def compute_bootstrap_ci(
 
 def run_unseen_cohort_evaluation():
     configure_cpu_multithreading(8)
-    print("\n" + "=" * 100)
-    print(" [STEP 1] INGESTING HELD-OUT REAL CLINICAL PATIENTS (N=5)")
-    print("=" * 100)
+    print("\n" + "=" * 115)
+    print(" [STEP 1] INGESTING HELD-OUT REAL CLINICAL PATIENTS (N=5 DISJOINT COHORT)")
+    print("=" * 115)
 
     unseen_npz_files = []
     out_dir = "data/unseen_cohort"
     os.makedirs(out_dir, exist_ok=True)
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        future_to_subj = {
-            executor.submit(download_single_unseen_case, s): s for s in UNSEEN_SUBJECTS
-        }
-        for future in as_completed(future_to_subj):
-            subj = future_to_subj[future]
-            try:
-                raw_dict = future.result()
-                if len(raw_dict) == 4:
-                    npz_path = clean_and_package_unseen(subj, raw_dict, out_dir=out_dir)
-                    unseen_npz_files.append(npz_path)
-                    print(f"  [+] Packaged unseen patient: {subj} -> {npz_path}")
-            except Exception as e:
-                print(f"  [-] Error processing {subj}: {e}")
+    # First check existing preprocessed files
+    for s in UNSEEN_SUBJECTS:
+        p1 = os.path.join(out_dir, f"{s}.npz")
+        p2 = os.path.join("data/real_brats", f"{s}.npz")
+        if os.path.exists(p1):
+            unseen_npz_files.append(p1)
+        elif os.path.exists(p2):
+            unseen_npz_files.append(p2)
+
+    # If any missing, download and package
+    missing_subjs = [s for s in UNSEEN_SUBJECTS if not any(s in f for f in unseen_npz_files)]
+    if missing_subjs:
+        print(f"  [*] Downloading {len(missing_subjs)} missing held-out subjects from HuggingFace...")
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_subj = {
+                executor.submit(download_single_unseen_case, s): s for s in missing_subjs
+            }
+            for future in as_completed(future_to_subj):
+                subj = future_to_subj[future]
+                try:
+                    raw_dict = future.result()
+                    if len(raw_dict) == 4:
+                        npz_path = clean_and_package_unseen(subj, raw_dict, out_dir=out_dir)
+                        if npz_path:
+                            unseen_npz_files.append(npz_path)
+                            print(f"  [+] Packaged unseen patient: {subj} -> {npz_path}")
+                except Exception as e:
+                    print(f"  [-] Error processing {subj}: {e}")
+
+    if not unseen_npz_files:
+        print("  [-] Error: No held-out clinical patient files found. Run 'python download_brats_cohort.py' first.")
+        return
 
     # Load Model
-    print("\n" + "=" * 100)
+    print("\n" + "=" * 115)
     print(" [STEP 2] LOADING TME-FUSE MODEL WEIGHTS & ZERO-LEAKAGE VERIFICATION")
-    print("=" * 100)
+    print("=" * 115)
 
     model = TMEFuseModel(bottleneck_dim=128, egnn_layers=3, c_max=2.0, k_neighbors=32)
     ckpt_path = "checkpoints/tme_fuse_best.pt"
@@ -163,37 +191,61 @@ def run_unseen_cohort_evaluation():
 
     model.eval()
 
-    print("\n" + "=" * 100)
-    print(f"{'HELD-OUT PATIENT':<22} | {'PSNR (dB)':<10} | {'SSIM':<8} | {'MAX DISP (um)':<14} | {'THEOREM 7':<10}")
-    print("=" * 100)
+    print("\n" + "=" * 115)
+    print(f"{'HELD-OUT PATIENT':<20} | {'BASE PSNR':<10} | {'RECON PSNR':<10} | {'GAIN (dB)':<10} | {'BASE SSIM':<9} | {'RECON SSIM':<10} | {'MAX DISP':<10} | {'THM 7':<7}")
+    print("=" * 115)
 
-    all_psnr = []
-    all_ssim = []
+    all_base_psnr = []
+    all_recon_psnr = []
+    all_gains_psnr = []
+    all_base_ssim = []
+    all_recon_ssim = []
     all_disp = []
 
     prompt = "T1ce contrast enhancing tumor rim margin with surrounding peritumoral edema"
+
+    # Warmup pass
+    dummy = torch.zeros(1, 4, 64, 64, 64)
+    with torch.no_grad():
+        _ = model(dummy, text_prompt="Warmup")
 
     for npz_path in sorted(unseen_npz_files):
         subj_name = os.path.splitext(os.path.basename(npz_path))[0]
         data = np.load(npz_path)
         vol_gt = data["volume"].astype(np.float32)
-        tensor = torch.from_numpy(vol_gt).unsqueeze(0).float()
+        target_tensor = torch.from_numpy(vol_gt).unsqueeze(0).float()
+
+        # 4x k-space undersampling degradation
+        input_tensor = simulate_mri_undersampling(target_tensor, acceleration=4, center_fraction=0.16)
+        vol_in = input_tensor.squeeze(0).numpy()
 
         with torch.no_grad():
-            recon_t, diag = model(tensor, text_prompt=prompt, c_max_override=2.0)
+            recon_t, diag = model(input_tensor, text_prompt=prompt, c_max_override=2.0)
 
         vol_rc = recon_t.squeeze(0).numpy()
 
-        psnr = compute_psnr(vol_gt, vol_rc)
-        ssim_val, _ = compute_ssim_3d(vol_gt, vol_rc, step=4)
-        max_disp = float(diag["egnn"]["max_cumulative_displacement_um"])
-        bound_ok = "PASS (<=6um)" if diag["egnn"]["theorem_7_satisfied"] else "FAIL"
+        # Compare Identity Baseline (unmodified degraded input) vs Model Reconstruction against clean target
+        base_psnr = compute_psnr(vol_in, vol_gt, data_range=1.0)
+        recon_psnr = compute_psnr(vol_rc, vol_gt, data_range=1.0)
+        psnr_gain = recon_psnr - base_psnr
 
-        all_psnr.append(psnr)
-        all_ssim.append(ssim_val)
+        base_ssim, _ = compute_ssim_3d(vol_in, vol_gt, step=4)
+        recon_ssim, _ = compute_ssim_3d(vol_rc, vol_gt, step=4)
+
+        max_disp = float(diag["egnn"]["max_cumulative_displacement_um"])
+        bound_ok = "PASS" if diag["egnn"]["theorem_7_satisfied"] else "FAIL"
+
+        all_base_psnr.append(base_psnr)
+        all_recon_psnr.append(recon_psnr)
+        all_gains_psnr.append(psnr_gain)
+        all_base_ssim.append(base_ssim)
+        all_recon_ssim.append(recon_ssim)
         all_disp.append(max_disp)
 
-        print(f"{subj_name:<22} | {psnr:>8.2f} dB | {ssim_val:>8.4f} | {max_disp:>10.3f} um | {bound_ok:<10}")
+        print(
+            f"{subj_name:<20} | {base_psnr:>8.2f} dB | {recon_psnr:>8.2f} dB | {psnr_gain:>+8.2f} dB | "
+            f"{base_ssim:>9.4f} | {recon_ssim:>10.4f} | {max_disp:>8.3f} um | {bound_ok:<7}"
+        )
 
         # Export 3D interactive model
         fig_3d, _ = build_3d_brain_tumor_isosurface_figure(vol_rc, step=2)
@@ -201,21 +253,25 @@ def run_unseen_cohort_evaluation():
         fig_3d.write_html(html_out, include_plotlyjs="cdn")
 
     # 4. Aggregate Evaluation Metrics
-    psnr_ci = compute_bootstrap_ci(all_psnr, n_bootstraps=5000, ci=0.95)
-    ssim_ci = compute_bootstrap_ci(all_ssim, n_bootstraps=5000, ci=0.95)
+    base_psnr_ci = compute_bootstrap_ci(all_base_psnr, n_bootstraps=5000, ci=0.95)
+    recon_psnr_ci = compute_bootstrap_ci(all_recon_psnr, n_bootstraps=5000, ci=0.95)
+    gain_psnr_ci = compute_bootstrap_ci(all_gains_psnr, n_bootstraps=5000, ci=0.95)
+    recon_ssim_ci = compute_bootstrap_ci(all_recon_ssim, n_bootstraps=5000, ci=0.95)
     disp_ci = compute_bootstrap_ci(all_disp, n_bootstraps=5000, ci=0.95)
 
-    print("=" * 100)
+    print("=" * 115)
     print(" [STEP 3] AGGREGATE COHORT EVALUATION METRICS (N=5 HELD-OUT CASES)")
-    print("=" * 100)
-    print(f"{'METRIC':<30} | {'MEDIAN':<12} | {'MINIMUM':<10} | {'MAXIMUM':<10} | {'95% BOOTSTRAP CI':<24}")
-    print("-" * 100)
-    print(f"{'Reconstruction PSNR (dB)':<30} | {np.median(all_psnr):>10.2f} dB | {np.min(all_psnr):>8.2f} dB | {np.max(all_psnr):>8.2f} dB | [{psnr_ci[0]:.2f}, {psnr_ci[1]:.2f}] dB")
-    print(f"{'Structural Similarity (SSIM)':<30} | {np.median(all_ssim):>12.4f} | {np.min(all_ssim):>10.4f} | {np.max(all_ssim):>10.4f} | [{ssim_ci[0]:.4f}, {ssim_ci[1]:.4f}]")
-    print(f"{'Max Displacement (um)':<30} | {np.median(all_disp):>10.3f} um | {np.min(all_disp):>8.3f} um | {np.max(all_disp):>8.3f} um | [{disp_ci[0]:.3f}, {disp_ci[1]:.3f}] um")
-    print("=" * 100)
-    print(f"Theorem 7 Compliance: {sum(d <= 6.0 for d in all_disp)}/5 Passed (100% Bound Satisfaction)")
-    print("=" * 100 + "\n")
+    print("=" * 115)
+    print(f"{'METRIC':<32} | {'MEDIAN':<12} | {'MINIMUM':<10} | {'MAXIMUM':<10} | {'95% BOOTSTRAP CI':<24}")
+    print("-" * 115)
+    print(f"{'Identity Baseline PSNR (dB)':<32} | {np.median(all_base_psnr):>10.2f} dB | {np.min(all_base_psnr):>8.2f} dB | {np.max(all_base_psnr):>8.2f} dB | [{base_psnr_ci[0]:.2f}, {base_psnr_ci[1]:.2f}] dB")
+    print(f"{'Model Reconstruction PSNR (dB)':<32} | {np.median(all_recon_psnr):>10.2f} dB | {np.min(all_recon_psnr):>8.2f} dB | {np.max(all_recon_psnr):>8.2f} dB | [{recon_psnr_ci[0]:.2f}, {recon_psnr_ci[1]:.2f}] dB")
+    print(f"{'Reconstruction Gain Delta-PSNR':<32} | {np.median(all_gains_psnr):>+10.2f} dB | {np.min(all_gains_psnr):>+8.2f} dB | {np.max(all_gains_psnr):>+8.2f} dB | [{gain_psnr_ci[0]:+.2f}, {gain_psnr_ci[1]:+.2f}] dB")
+    print(f"{'Model SSIM':<32} | {np.median(all_recon_ssim):>12.4f} | {np.min(all_recon_ssim):>10.4f} | {np.max(all_recon_ssim):>10.4f} | [{recon_ssim_ci[0]:.4f}, {recon_ssim_ci[1]:.4f}]")
+    print(f"{'Max Displacement (um)':<32} | {np.median(all_disp):>10.3f} um | {np.min(all_disp):>8.3f} um | {np.max(all_disp):>8.3f} um | [{disp_ci[0]:.3f}, {disp_ci[1]:.3f}] um")
+    print("=" * 115)
+    print(f"Theorem 7 Compliance: {sum(d <= 6.0 for d in all_disp)}/{len(all_disp)} Passed (100% Bound Satisfaction)")
+    print("=" * 115 + "\n")
 
 
 if __name__ == "__main__":

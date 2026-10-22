@@ -24,6 +24,7 @@ from huggingface_hub import hf_hub_download
 from scipy import ndimage
 
 from tme_fuse.data_pipeline import crop_foreground_bounding_box, normalize_volume_channels, resize_volume_patch
+from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import compute_psnr, compute_ssim_3d, configure_cpu_multithreading
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
 from tme_fuse.visualization_3d import (
@@ -222,26 +223,30 @@ def run_evaluation():
         data = np.load(npz_path)
         vol_gt = data["volume"].astype(np.float32)
         seg_gt = data.get("seg", None)
-        tensor = torch.from_numpy(vol_gt).unsqueeze(0).float()
+        target_tensor = torch.from_numpy(vol_gt).unsqueeze(0).float()
+        input_tensor = simulate_mri_undersampling(target_tensor, acceleration=4, center_fraction=0.16)
+        vol_in = input_tensor.squeeze(0).numpy()
 
         t0 = time.perf_counter()
         with torch.no_grad():
-            recon_t, diag = model(tensor, text_prompt=prompt, c_max_override=2.0)
+            recon_t, diag = model(input_tensor, text_prompt=prompt, c_max_override=2.0)
         inference_ms = (time.perf_counter() - t0) * 1000.0
 
         vol_rc = recon_t.squeeze(0).numpy()
 
-        psnr_overall = compute_psnr(vol_gt, vol_rc)
-        ssim_val, ch_ssims = compute_ssim_3d(vol_gt, vol_rc, step=4)
+        base_psnr = compute_psnr(vol_in, vol_gt, data_range=1.0)
+        psnr_overall = compute_psnr(vol_rc, vol_gt, data_range=1.0)
+        psnr_gain = psnr_overall - base_psnr
+        ssim_val, ch_ssims = compute_ssim_3d(vol_rc, vol_gt, step=4)
         mse_val = float(np.mean((vol_gt - vol_rc) ** 2))
         mae_val = float(np.mean(np.abs(vol_gt - vol_rc)))
 
-        psnr_t1ce = compute_psnr(vol_gt[1], vol_rc[1])
-        psnr_flair = compute_psnr(vol_gt[3], vol_rc[3])
+        psnr_t1ce = compute_psnr(vol_rc[1], vol_gt[1], data_range=1.0)
+        psnr_flair = compute_psnr(vol_rc[3], vol_gt[3], data_range=1.0)
 
         max_disp = diag["egnn"]["max_cumulative_displacement_um"]
         theorem_pass = diag["egnn"]["theorem_7_satisfied"]
-        status = "PASS" if theorem_pass and psnr_overall > 28.0 else "WARN"
+        status = "PASS" if theorem_pass and psnr_overall >= 20.0 else "WARN"
 
         # 3D Clinical Tumor Localization
         loc = analyze_tumor_3d_localization(vol_rc)

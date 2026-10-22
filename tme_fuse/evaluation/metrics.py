@@ -7,7 +7,7 @@ and memory footprint verification.
 import os
 import time
 import tracemalloc
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -28,21 +28,35 @@ def configure_cpu_multithreading(num_threads: Optional[int] = None) -> int:
     return target_threads
 
 
+import math
+
+
 def compute_psnr(
-    gt: np.ndarray,
-    recon: np.ndarray,
-    max_val: float = 1.0,
-    eps: float = 1e-10,
+    pred: Union[torch.Tensor, np.ndarray],
+    target: Union[torch.Tensor, np.ndarray],
+    data_range: float = 1.0,
+    eps: float = 1e-12,
 ) -> float:
     """
-    Calculates Peak Signal-to-Noise Ratio (PSNR) in decibels (dB).
-    Formula: 10 * log10(max_val^2 / (MSE + eps))
+    Calculates Peak Signal-to-Noise Ratio (PSNR) in decibels (dB) consistently.
+    Formula: 10 * log10(data_range^2 / max(MSE, eps))
+    Returns float("inf") if MSE is identically zero.
     """
-    mse = np.mean((gt - recon) ** 2)
-    if mse < eps:
-        return 50.0  # Cap near-identical tensors at 50 dB
-    psnr = 10.0 * np.log10((max_val ** 2) / (mse + eps))
-    return float(psnr)
+    if isinstance(pred, np.ndarray):
+        pred_t = torch.from_numpy(pred).float()
+    else:
+        pred_t = pred.detach().cpu().float()
+
+    if isinstance(target, np.ndarray):
+        target_t = torch.from_numpy(target).float()
+    else:
+        target_t = target.detach().cpu().float()
+
+    mse = torch.mean((pred_t - target_t) ** 2).item()
+    if mse == 0.0:
+        return float("inf")
+    return float(10.0 * math.log10((data_range ** 2) / max(mse, eps)))
+
 
 
 def compute_ssim_2d_slice(

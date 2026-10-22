@@ -37,39 +37,53 @@ def verify_real_patient(patient_id: str = "BraTS-GLI-00000-000"):
     print(f" CLINICAL VERIFICATION ON REAL PATIENT: {patient_id}")
     print("=" * 80)
 
-    # 1. Ingest Real Patient Scan
-    t_vol, meta = load_volume_from_file_or_bytes(file_path)
-    volume_np = t_vol.squeeze(0).numpy() # (4, 64, 64, 64)
-    print(f"[1] Ingested real 4-channel MRI volume with shape: {volume_np.shape}")
+    # 1. Ingest Real Patient Scan (Reference Ground Truth)
+    clean_tensor, meta = load_volume_from_file_or_bytes(file_path)
+    gt_np = clean_tensor.squeeze(0).numpy() # (4, 64, 64, 64)
+    print(f"[1] Ingested real 4-channel reference MRI volume with shape: {gt_np.shape}")
     print(f"    - Modalities: T1 (Ch0), T1ce (Ch1), T2 (Ch2), FLAIR (Ch3)")
-    print(f"    - Value range: min={volume_np.min():.3f}, max={volume_np.max():.3f}")
+    print(f"    - Value range: min={gt_np.min():.3f}, max={gt_np.max():.3f}")
 
-    # 2. Load Real-Trained Model
+    # 2. Physiologically & Physically Grounded 4x Accelerated MRI Degradation
+    from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
+    input_tensor = simulate_mri_undersampling(clean_tensor, acceleration=4, center_fraction=0.16)
+    in_np = input_tensor.squeeze(0).numpy()
+    base_psnr = compute_psnr(in_np, gt_np, data_range=1.0)
+    base_ssim, _ = compute_ssim_3d(in_np, gt_np, step=8)
+    print(f"[2] Applied 4x k-space undersampling (Identity Baseline: {base_psnr:.2f} dB, SSIM: {base_ssim:.4f})")
+
+    # 3. Load Real-Trained Model
     model = TMEFuseModel(bottleneck_dim=128, egnn_layers=3, c_max=2.0, k_neighbors=32)
     ckpt_path = "checkpoints/tme_fuse_best.pt"
     if os.path.exists(ckpt_path):
         ckpt = torch.load(ckpt_path, map_location="cpu")
-        model.load_state_dict(ckpt["model_state_dict"])
-        print(f"[2] Loaded fine-tuned weights from: {ckpt_path} (Trained on {len(ckpt.get('trained_subjects', []))} cases)")
+        model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        print(f"[3] Loaded model weights from: {ckpt_path} (Trained on {len(ckpt.get('trained_subjects', []))} cases)")
     model.eval()
 
-    # 3. Model Forward Pass
+    # 4. Model Forward Pass: Reconstruct from degraded input
     prompt = "T1ce contrast enhancing tumor rim margin with surrounding peritumoral edema"
+    # CPU Warm-up
+    with torch.no_grad():
+        _ = model(torch.zeros_like(input_tensor), text_prompt="Warmup")
     t0 = time.perf_counter()
     with torch.no_grad():
-        recon_tensor, diag = model(t_vol, text_prompt=prompt, c_max_override=2.0)
+        recon_tensor, diag = model(input_tensor, text_prompt=prompt, c_max_override=2.0)
     inference_time = (time.perf_counter() - t0) * 1000.0
     recon_np = recon_tensor.squeeze(0).numpy()
 
-    psnr_val = compute_psnr(volume_np, recon_np)
-    ssim_val, _ = compute_ssim_3d(volume_np, recon_np, step=8)
+    psnr_val = compute_psnr(recon_np, gt_np, data_range=1.0)
+    ssim_val, _ = compute_ssim_3d(recon_np, gt_np, step=8)
+    psnr_gain = psnr_val - base_psnr
     disp = diag["egnn"]["max_cumulative_displacement_um"]
     thm7 = "PASS (<=6.0 um)" if diag["egnn"]["theorem_7_satisfied"] else "FAIL"
 
-    print(f"[3] Reconstruction & Regularization Telemetry:")
-    print(f"    - PSNR: {psnr_val:.2f} dB (Excellent Fidelity)")
-    print(f"    - SSIM: {ssim_val:.4f} (99.7% Structural Preservation)")
-    print(f"    - Pure-CPU Latency: {inference_time:.1f} ms")
+    print(f"[4] Reconstruction vs Identity Baseline Telemetry:")
+    print(f"    - Baseline Input PSNR:       {base_psnr:.2f} dB")
+    print(f"    - Model Reconstruction PSNR: {psnr_val:.2f} dB ({psnr_gain:+.2f} dB gain)")
+    print(f"    - Baseline Input SSIM:       {base_ssim:.4f}")
+    print(f"    - Model Reconstruction SSIM: {ssim_val:.4f}")
+    print(f"    - Pure-CPU Latency:          {inference_time:.1f} ms")
     print(f"    - Theorem 7 Lipschitz Bound: {disp:.4f} um -> {thm7}")
 
     # 4. 3D Tumor Localization Analysis

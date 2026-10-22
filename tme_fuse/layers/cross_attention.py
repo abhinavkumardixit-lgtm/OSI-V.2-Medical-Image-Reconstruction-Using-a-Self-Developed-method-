@@ -33,6 +33,9 @@ class CrossAttentionLayer(nn.Module):
             nn.SiLU(),
             nn.Linear(feature_dim, feature_dim),
         )
+        # Zero-init final projection so prompt adapter starts neutrally without disturbing spatial features
+        nn.init.zeros_(self.text_proj[-1].weight)
+        nn.init.zeros_(self.text_proj[-1].bias)
 
         self.norm = nn.LayerNorm(feature_dim)
 

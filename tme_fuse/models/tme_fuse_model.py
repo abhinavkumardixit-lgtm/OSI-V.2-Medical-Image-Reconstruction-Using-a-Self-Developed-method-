@@ -206,7 +206,7 @@ class TMEFuseModel(nn.Module):
 
         raw_head_delta = self.head(d3)
         prompt_modulation = (attn_upsampled * ch_factors) * (volume > 0.05).float()
-        recon_delta = torch.tanh(raw_head_delta) * 0.05 + prompt_modulation
+        recon_delta = torch.tanh(raw_head_delta) + prompt_modulation
         reconstructed = torch.clamp(volume + recon_delta, 0.0, 1.0)
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0

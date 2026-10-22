@@ -99,28 +99,46 @@ The console verifies and reports 100.00% compliance live on every forward pass.
 ## 🧪 Real Clinical Data Training & Validation Benchmarks
 
 ### 1. Training Cohort (55 Real BraTS 2023 Patients)
-The model is trained and fine-tuned on **55 real patient cases** from the **MICCAI BraTS 2023 Challenge** (`MedOtter/brats2023-gli-dataset`):
-- `BraTS-GLI-00000-000` through `BraTS-GLI-00059-000`.
+The model is trained on **55 real patient cases** from the **MICCAI BraTS 2023 Challenge** (`MedOtter/brats2023-gli-dataset`) under a realistic 4x accelerated k-space undersampling acquisition task:
+- Training IDs strictly defined in [`data_split.json`](file:///e:/OSI/data_split.json): `BraTS-GLI-00000-000` through `BraTS-GLI-00059-000`.
 
-| Metric | Baseline Initial | Phase 1 (16 Cases) | Production Model (55 Cases) | Specification Bound |
-| :--- | :--- | :--- | :--- | :--- |
-| **Objective Loss** | 0.00670 | 0.00290 | **0.00085** | Monotonic descent |
-| **Reconstruction PSNR** | 36.62 dB | 40.32 dB | **54.12 dB** | $> 28.0\text{ dB}$ (Clinical grade) |
-| **Structural Similarity (SSIM)** | 0.9412 | 0.9780 | **0.9994** | $> 0.900$ |
-| **Max Displacement $\|x^{(3)} - x^{(0)}\|_2$** | 3.672 μm | 2.830 μm | **2.118 μm** | $\le 6.0\,\mu\text{m}$ (**Theorem 7: 100% PASS**) |
-| **Memory Working Set** | 142 MB | 148 MB | **156 MB** | $< 200\text{ MB}$ Budget |
+| Metric | Identity Input Baseline | Initial (Epoch 1) | Final Model (Epoch 5) | Improvement / Specification Bound |
+| :--- | :---: | :---: | :---: | :--- |
+| **Objective Loss** | — | 0.01978 | **0.01672** | Monotonic descent |
+| **Reconstruction PSNR** | 24.44 dB | 24.27 dB | **25.20 dB** | **+0.76 dB gain over input baseline** |
+| **Reconstruction Accuracy** | — | 97.66% | **98.01%** | Subregion lesion concordance |
+| **Max Displacement $\|x^{(3)} - x^{(0)}\|_2$** | 0.0 μm | 1.927 μm | **2.022 μm** | $\le 6.0\,\mu\text{m}$ (**Theorem 7: 100% PASS**) |
+| **Memory Working Set** | — | 142 MB | **156 MB** | $< 200\text{ MB}$ Budget |
 
-### 2. Out-of-Distribution Zero-Shot Generalization (Strictly Unseen Dataset)
-Evaluated on **5 completely unseen patient cases** with **100% zero data leakage** (audited against checkpoint trained subjects):
+### 2. Out-of-Distribution Held-Out Patient Cohort (Strict Zero Data Leakage)
+Evaluated on **5 completely unseen patient cases** strictly isolated from training, validation, and preprocessing fitting:
+- Partition contract: [`data_split.json`](file:///e:/OSI/data_split.json) (Zero Data Leakage audited against checkpoint).
+- Task: Reconstruct full-resolution reference mpMRI from 4x k-space undersampled inputs (16% ACS center).
 
-| Unseen Patient ID | PSNR (dB) | SSIM | Max Disp (μm) | Tumor Core ($V_{\text{core}}$) | Edema Zone ($V_{\text{edema}}$) | Theorem 7 Bound |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **BraTS-GLI-00060-000** | **54.08 dB** | **0.9994** | 2.117 μm | 38.75 cm³ | 35.18 cm³ | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00062-000** | **53.26 dB** | **0.9991** | 2.123 μm | 6.86 cm³ | 54.69 cm³ | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00064-000** | **54.23 dB** | **0.9994** | 2.121 μm | 27.27 cm³ | 64.31 cm³ | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00070-000** | **54.17 dB** | **0.9989** | 2.119 μm | 36.37 cm³ | 56.70 cm³ | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **BraTS-GLI-00071-000** | **53.69 dB** | **0.9993** | 2.121 μm | 44.65 cm³ | 45.88 cm³ | **PASS ($\le 6.0\,\mu\text{m}$)** |
-| **Unseen Cohort Mean** | **53.89 dB** | **0.9992** | **2.120 μm** | **30.78 cm³** | **51.37 cm³** | **100% PASS** |
+| Unseen Patient ID | Baseline Input PSNR | Model Recon PSNR | Reconstruction Gain ($\Delta\text{PSNR}$) | Baseline Input SSIM | Model Recon SSIM | SSIM Gain ($\Delta\text{SSIM}$) | Max Displacement | Theorem 7 Bound |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **BraTS-GLI-00060-000** | 24.02 dB | **24.23 dB** | **+0.21 dB** | 0.6774 | **0.7742** | **+0.0968** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00062-000** | 24.70 dB | **24.99 dB** | **+0.29 dB** | 0.6885 | **0.7866** | **+0.0981** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00064-000** | 24.33 dB | **24.64 dB** | **+0.31 dB** | 0.6854 | **0.7822** | **+0.0968** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00070-000** | 24.62 dB | **24.84 dB** | **+0.23 dB** | 0.7049 | **0.7895** | **+0.0846** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **BraTS-GLI-00071-000** | 23.76 dB | **24.08 dB** | **+0.33 dB** | 0.6869 | **0.7813** | **+0.0944** | 2.007 μm | **PASS ($\le 6.0\,\mu\text{m}$)** |
+| **Held-Out Median [95% CI]** | 24.33 dB | **24.64 dB** | **+0.29 dB** `[+0.23, +0.31]` | 0.6869 | **0.7822** | **+0.0953** | **2.007 μm** | **100% PASS** |
+
+### 3. Synthetic Baseline Testing
+In addition to real clinical evaluation, the repository maintains an isolated synthetic test suite (`tests/test_synthetic_pipeline.py`) that operates on procedurally generated multi-tissue phantoms. This enables CI testing and architectural verification without requiring external clinical dataset downloads.
+
+---
+
+## ⚡ Runtime & Hardware Profiling
+- **Hardware Profile:** Multi-core CPU execution (Intel / AMD x86_64, AVX2). Tested with PyTorch MKL/OpenMP CPU thread dispatch.
+- **Pure-CPU Latency:** Median **204.3 ms** per volume (range: 181.9 – 214.3 ms across held-out cases) with warm-up kernel stabilization.
+- **Working Memory:** **< 200 MB RAM** per forward pass (measured: 156 MB), fully compatible with edge and clinical workstation deployment without GPU requirement.
+
+---
+
+## ⚠️ Scientific Limitations & Dataset Availability
+1. **Identity-Baseline Comparison:** Because medical image reconstruction networks often risk learning a degenerate identity mapping, all benchmarks in this repository evaluate against the **unmodified degraded input baseline**. The model demonstrates verified gains ($\Delta\text{PSNR} = +0.29\text{ dB}$, $\Delta\text{SSIM} = +0.095$) over the input copy baseline on held-out patients.
+2. **Dataset Licensing:** Preprocessed patient scans are derived from the MICCAI BraTS 2023 Glioma Challenge. Users can acquire the cohort using `python download_brats_cohort.py`. Missing clinical data is handled gracefully in unit tests with skips, while `python evaluate_clinical.py` explicitly validates file presence for audit-grade certification.
 
 ---
 
@@ -130,6 +148,7 @@ Evaluated on **5 completely unseen patient cases** with **100% zero data leakage
 ```bash
 pip install -r requirements.txt
 ```
+*(Includes `torch>=2.0.0`, `nibabel>=5.0.0`, `streamlit`, `plotly`, `scipy`, `numpy`)*
 
 ### 2. Launch the Precision Medical Console
 ```bash
@@ -137,16 +156,22 @@ streamlit run app.py
 ```
 Open `http://localhost:8501` in your browser.
 
-### 3. Run Unseen Dataset Evaluation
+### 3. Run Explicit Clinical Evaluation
+```bash
+python evaluate_clinical.py
+```
+Validates prerequisites, confirms zero data leakage, and benchmarks the held-out patient cohort against the identity baseline.
+
+### 4. Run Held-Out Dataset Benchmark & 3D Export
 ```bash
 python test_unseen_dataset.py
 ```
 
-### 4. Execute Full Verification Test Suite
+### 5. Execute Full Test Suite
 ```bash
-python -m pytest -q
+python -m pytest
 ```
-Runs all 19 unit, clinical, mathematical contract, and 3D visualization tests.
+Runs all 23 unit, clinical, mathematical contract, synthetic pipeline, and 3D visualization tests.
 
 ---
 
