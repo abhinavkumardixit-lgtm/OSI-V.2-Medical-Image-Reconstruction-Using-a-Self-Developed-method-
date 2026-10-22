@@ -32,18 +32,29 @@ CLINICAL_PROMPTS = [
 ]
 
 
+# Dedicated held-out validation cohort (Strict Zero Data Leakage)
+HELD_OUT_SUBJECTS = {
+    "BraTS-GLI-00060-000.npz",
+    "BraTS-GLI-00062-000.npz",
+    "BraTS-GLI-00064-000.npz",
+    "BraTS-GLI-00070-000.npz",
+    "BraTS-GLI-00071-000.npz",
+}
+
+
 class RealBraTSDataset(Dataset):
     """
     Loads real preprocessed BraTS patient volumes (.npz) with clinical prompt pairings
-    and spatial augmentations.
+    and spatial augmentations, strictly excluding held-out evaluation subjects.
     """
 
     def __init__(self, data_dir: str = "data/real_brats", augment: bool = True):
-        self.files = glob.glob(os.path.join(data_dir, "*.npz"))
+        all_files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
+        self.files = [f for f in all_files if os.path.basename(f) not in HELD_OUT_SUBJECTS]
         self.augment = augment
 
         if not self.files:
-            raise FileNotFoundError(f"No .npz files found in {data_dir}. Run download_real_data.py first.")
+            raise FileNotFoundError(f"No .npz training files found in {data_dir}.")
 
     def __len__(self) -> int:
         return len(self.files)
@@ -60,11 +71,9 @@ class RealBraTSDataset(Dataset):
         # 3D spatial augmentations (random 90-degree axis rotations and flips)
         if self.augment:
             if np.random.rand() > 0.5:
-                # Random 90 deg rotation in axial plane
                 k = np.random.choice([1, 2, 3])
                 vol = np.rot90(vol, k=k, axes=(2, 3)).copy()
             if np.random.rand() > 0.5:
-                # Horizontal flip
                 vol = np.flip(vol, axis=3).copy()
 
         tensor = torch.from_numpy(vol).float()
@@ -90,7 +99,7 @@ def train_tme_fuse(
 
     dataset = RealBraTSDataset(data_dir=data_dir, augment=True)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    print(f"[Training] Loaded {len(dataset)} real clinical BraTS patient cases.")
+    print(f"[Training] Loaded {len(dataset)} real clinical BraTS patient cases (55 training cohort).")
 
     # Initialize model
     model = TMEFuseModel(
@@ -106,8 +115,8 @@ def train_tme_fuse(
     if fine_tune and os.path.exists(best_checkpoint_path):
         print(f"[Fine-Tuning] Loading existing trained weights from: {best_checkpoint_path}")
         ckpt = torch.load(best_checkpoint_path, map_location="cpu")
-        model.load_state_dict(ckpt["model_state_dict"])
-        best_psnr = ckpt.get("best_psnr", 35.33)
+        model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        best_psnr = -1.0
     else:
         best_psnr = -1.0
 
