@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Large Datasets & Raw Scans (>900 MB)
+data/
+*.nii
+*.nii.gz
+
+# Retain lightweight sample data for standalone testing
+!sample_data/
+!sample_data/brats_sample_01.npz
+
+# Generated large HTML visualizations (available on demand via generation scripts)
+# Keep lightweight scripts and docs
+artifacts_*.html
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
