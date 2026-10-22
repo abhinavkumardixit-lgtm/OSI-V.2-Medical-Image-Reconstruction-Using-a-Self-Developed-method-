@@ -14,7 +14,6 @@ from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import (
     benchmark_reconstruction,
     compute_psnr,
-    compute_ssim_3d,
     configure_cpu_multithreading,
 )
 from tme_fuse.models.tme_fuse_model import TMEFuseModel

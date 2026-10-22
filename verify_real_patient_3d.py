@@ -13,7 +13,7 @@ import torch
 import plotly.graph_objects as go
 
 from tme_fuse.data_pipeline import load_volume_from_file_or_bytes
-from tme_fuse.evaluation.metrics import compute_psnr, compute_ssim_3d, configure_cpu_multithreading
+from tme_fuse.evaluation.metrics import compute_psnr, compute_slice_averaged_ssim, configure_cpu_multithreading
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
 from tme_fuse.visualization_3d import (
     analyze_tumor_3d_localization,
@@ -49,7 +49,7 @@ def verify_real_patient(patient_id: str = "BraTS-GLI-00000-000"):
     input_tensor = simulate_mri_undersampling(clean_tensor, acceleration=4, center_fraction=0.16, seed=42)
     in_np = input_tensor.squeeze(0).numpy()
     base_psnr = compute_psnr(in_np, gt_np, data_range=1.0)
-    base_ssim, _ = compute_ssim_3d(in_np, gt_np, step=8)
+    base_ssim, _ = compute_slice_averaged_ssim(in_np, gt_np, step=8)
     print(f"[2] Applied 4x k-space undersampling (Identity Baseline: {base_psnr:.2f} dB, SSIM: {base_ssim:.4f})")
 
     # 3. Load Real-Trained Model
@@ -73,7 +73,7 @@ def verify_real_patient(patient_id: str = "BraTS-GLI-00000-000"):
     recon_np = recon_tensor.squeeze(0).numpy()
 
     psnr_val = compute_psnr(recon_np, gt_np, data_range=1.0)
-    ssim_val, _ = compute_ssim_3d(recon_np, gt_np, step=8)
+    ssim_val, _ = compute_slice_averaged_ssim(recon_np, gt_np, step=8)
     psnr_gain = psnr_val - base_psnr
     disp = diag["egnn"]["max_cumulative_displacement_um"]
     thm7 = "PASS (<=6.0 um)" if diag["egnn"]["theorem_7_satisfied"] else "FAIL"

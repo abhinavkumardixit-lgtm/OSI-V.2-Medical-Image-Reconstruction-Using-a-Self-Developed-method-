@@ -5,6 +5,6 @@ Includes Norm-Clamped E(3)-Equivariant Graph Neural Network (EGNN) and Clinical 
 
 from .egnn_clamped import NormClampedEGNNLayer
 from .cross_attention import CrossAttentionLayer, AdditivePromptProjectionLayer
-from .text_encoder import ClinicalTextEncoder, BioCLIPTextEncoder
+from .text_encoder import ClinicalTextEncoder
 
-__all__ = ["NormClampedEGNNLayer", "CrossAttentionLayer", "AdditivePromptProjectionLayer", "ClinicalTextEncoder", "BioCLIPTextEncoder"]
+__all__ = ["NormClampedEGNNLayer", "CrossAttentionLayer", "AdditivePromptProjectionLayer", "ClinicalTextEncoder"]

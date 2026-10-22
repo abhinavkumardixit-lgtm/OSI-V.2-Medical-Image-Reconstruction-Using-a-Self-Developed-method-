@@ -98,7 +98,3 @@ class ClinicalTextEncoder(nn.Module):
     ) -> torch.Tensor:
         target_device = device if device is not None else next(self.parameters()).device
         return self.encode_text_tokens(prompt, device=target_device)
-
-
-# Backwards compatibility alias
-BioCLIPTextEncoder = ClinicalTextEncoder

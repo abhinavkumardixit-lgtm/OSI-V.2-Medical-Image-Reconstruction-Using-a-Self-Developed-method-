@@ -14,7 +14,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from tme_fuse.data_pipeline import assign_radiology_prompt_from_pathology
 from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
 from tme_fuse.evaluation.metrics import (
     benchmark_reconstruction,

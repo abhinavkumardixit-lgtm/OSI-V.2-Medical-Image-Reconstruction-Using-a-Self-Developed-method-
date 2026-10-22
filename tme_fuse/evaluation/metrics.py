@@ -142,10 +142,6 @@ def compute_slice_averaged_ssim(
     return overall_ssim, channel_ssims
 
 
-# Backwards compatibility alias
-compute_ssim_3d = compute_slice_averaged_ssim
-
-
 def compute_ssim_3d_volumetric(
     gt_vol: np.ndarray,
     recon_vol: np.ndarray,

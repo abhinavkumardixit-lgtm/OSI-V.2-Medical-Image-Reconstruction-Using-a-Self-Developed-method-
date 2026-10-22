@@ -25,7 +25,7 @@ from scipy import ndimage
 
 from tme_fuse.data_pipeline import crop_foreground_bounding_box, normalize_volume_channels, resize_volume_patch
 from tme_fuse.degradation import simulate_mri_undersampling, identity_baseline
-from tme_fuse.evaluation.metrics import compute_psnr, compute_ssim_3d, configure_cpu_multithreading
+from tme_fuse.evaluation.metrics import compute_psnr, compute_slice_averaged_ssim, configure_cpu_multithreading
 from tme_fuse.models.tme_fuse_model import TMEFuseModel
 from tme_fuse.visualization_3d import (
     analyze_tumor_3d_localization,
@@ -237,7 +237,7 @@ def run_evaluation():
         base_psnr = compute_psnr(vol_in, vol_gt, data_range=1.0)
         psnr_overall = compute_psnr(vol_rc, vol_gt, data_range=1.0)
         psnr_gain = psnr_overall - base_psnr
-        ssim_val, ch_ssims = compute_ssim_3d(vol_rc, vol_gt, step=4)
+        ssim_val, ch_ssims = compute_slice_averaged_ssim(vol_rc, vol_gt, step=4)
         mse_val = float(np.mean((vol_gt - vol_rc) ** 2))
         mae_val = float(np.mean(np.abs(vol_gt - vol_rc)))
 
