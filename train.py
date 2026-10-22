@@ -236,8 +236,15 @@ def train_tme_fuse(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
+    parser.add_argument("--data_dir", type=str, default="data/real_brats", help="Path to preprocessed .npz files")
     parser.add_argument("--lr", type=float, default=8e-4, help="Learning rate")
     args = parser.parse_args()
 
-    train_tme_fuse(epochs=args.epochs, lr=args.lr)
+    train_tme_fuse(
+        data_dir=args.data_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+    )

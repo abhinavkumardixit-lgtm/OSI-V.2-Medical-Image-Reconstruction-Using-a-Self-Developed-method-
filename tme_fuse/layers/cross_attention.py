@@ -1,21 +1,18 @@
 """
-Cross-Modal Attention Layer for TME-FUSE.
-Injects 512-dim BioCLIP text descriptors into the 128-dim geometric latent tokens.
-
-Formulation:
-    t_hat = W_t * t
-    Attention(H, t_hat) = Softmax((W_q H)(W_k t_hat)^T / sqrt(d_k)) * (W_v t_hat)
+Cross-Modal Conditioning Layer for TME-FUSE.
+Injects 512-dim BioCLIP text descriptors into the 128-dim geometric latent tokens
+via global additive linear prompt projection.
 """
 
 from typing import Tuple
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class CrossAttentionLayer(nn.Module):
     """
-    Multi-Head Cross-Attention fusing text tokens into spatial latent tokens.
+    Global Additive Linear Prompt Projection Layer fusing text conditioning
+    into spatial latent tokens without degenerate single-key softmax attention collapse.
     """
 
     def __init__(
@@ -28,20 +25,14 @@ class CrossAttentionLayer(nn.Module):
         self.feature_dim = feature_dim
         self.text_dim = text_dim
         self.num_heads = num_heads
-        self.head_dim = feature_dim // num_heads
 
-        # Text projection: W_t
+        # Linear prompt projection: maps 512-dim text embedding to feature_dim
         self.text_proj = nn.Sequential(
             nn.Linear(text_dim, feature_dim),
             nn.LayerNorm(feature_dim),
             nn.SiLU(),
+            nn.Linear(feature_dim, feature_dim),
         )
-
-        # Multi-Head Attention projections
-        self.w_q = nn.Linear(feature_dim, feature_dim)
-        self.w_k = nn.Linear(feature_dim, feature_dim)
-        self.w_v = nn.Linear(feature_dim, feature_dim)
-        self.out_proj = nn.Linear(feature_dim, feature_dim)
 
         self.norm = nn.LayerNorm(feature_dim)
 
@@ -53,31 +44,25 @@ class CrossAttentionLayer(nn.Module):
         """
         Args:
             h: Spatial graph tokens of shape (B, N, feature_dim)
-            text_emb: BioCLIP text embedding of shape (B, 1, text_dim)
+            text_emb: BioCLIP text embedding of shape (B, 1, text_dim) or (B, text_dim)
 
         Returns:
             h_conditioned: (B, N, feature_dim)
-            attn_weights: (B, num_heads, N, 1) attention weights
+            proj_weights: (B, num_heads, N, 1) broadcasted modulation weights for telemetry
         """
         B, N, C = h.shape
+        if text_emb.dim() == 2:
+            text_emb = text_emb.unsqueeze(1)
 
-        # 1. Project text embedding to feature_dim: (B, 1, feature_dim)
-        t_hat = self.text_proj(text_emb)
+        # 1. Project text embedding to spatial feature dimension: (B, 1, feature_dim)
+        t_proj = self.text_proj(text_emb)
 
-        # 2. Linear projections
-        q = self.w_q(h).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)  # (B, H, N, D)
-        k = self.w_k(t_hat).view(B, 1, self.num_heads, self.head_dim).transpose(1, 2)  # (B, H, 1, D)
-        v = self.w_v(t_hat).view(B, 1, self.num_heads, self.head_dim).transpose(1, 2)  # (B, H, 1, D)
+        # 2. Global additive linear prompt projection with LayerNorm
+        h_out = self.norm(h + t_proj)
 
-        # 3. Scaled Dot-Product Attention
-        scale = 1.0 / (self.head_dim ** 0.5)
-        scores = torch.matmul(q, k.transpose(-2, -1)) * scale  # (B, H, N, 1)
-        attn_weights = F.softmax(scores, dim=-1)
+        # 3. Modulation weights for downstream spatial guidance & telemetry
+        gate = torch.sigmoid(t_proj.mean(dim=-1, keepdim=True))  # (B, 1, 1)
+        proj_weights = gate.unsqueeze(1).expand(B, self.num_heads, N, 1)
 
-        attended = torch.matmul(attn_weights, v)  # (B, H, N, D)
-        attended = attended.transpose(1, 2).contiguous().view(B, N, C)  # (B, N, C)
+        return h_out, proj_weights
 
-        # 4. Residual Connection + LayerNorm
-        h_out = self.norm(h + self.out_proj(attended))
-
-        return h_out, attn_weights

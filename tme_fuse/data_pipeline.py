@@ -203,3 +203,54 @@ def load_volume_from_file_or_bytes(
     meta_info["modalities"] = ["T1", "T1ce", "T2", "FLAIR"]
 
     return tensor, meta_info
+
+
+if __name__ == "__main__":
+    import argparse
+    import glob
+
+    parser = argparse.ArgumentParser(description="Preprocess and resample BraTS multi-parametric MRI scans to 64^3")
+    parser.add_argument("--raw_dir", type=str, default="data/raw_brats", help="Path to raw BraTS subject directories")
+    parser.add_argument("--out_dir", type=str, default="data/real_brats", help="Output directory for processed .npz files")
+    parser.add_argument("--target_size", type=int, default=64, help="Target isotropic volume dimension")
+    args = parser.parse_args()
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    sub_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*")) if os.path.isdir(d)]
+    if not sub_dirs:
+        sub_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*", "*")) if os.path.isdir(d)]
+    print(f"Found {len(sub_dirs)} patient directories in {args.raw_dir}")
+
+    for s_dir in sub_dirs:
+        sub_id = os.path.basename(s_dir)
+        out_f = os.path.join(args.out_dir, f"{sub_id}.npz")
+        if os.path.exists(out_f):
+            print(f"Skipping cached: {sub_id}")
+            continue
+
+        modalities = ["t1n", "t1c", "t2w", "t2f"]
+        channels = []
+        try:
+            import nibabel as nib
+            for m in modalities:
+                cand = glob.glob(os.path.join(s_dir, f"*{m}*.nii*"))
+                if not cand:
+                    raise FileNotFoundError(f"Missing modality {m} for {sub_id}")
+                nii = nib.load(cand[0])
+                channels.append(nii.get_fdata(dtype=np.float32))
+
+            vol_4d = np.stack(channels, axis=0)
+            vol_cropped = crop_foreground_bounding_box(vol_4d)
+            vol_resized = resize_volume_patch(vol_cropped, target_shape=(args.target_size, args.target_size, args.target_size))
+            vol_normalized = normalize_volume_channels(vol_resized)
+
+            np.savez_compressed(
+                out_f,
+                volume=vol_normalized,
+                subject_id=sub_id,
+                modalities=["T1", "T1ce", "T2", "FLAIR"],
+            )
+            print(f"Successfully processed {sub_id} -> {out_f}")
+        except Exception as e:
+            print(f"Failed to process {sub_id}: {e}")
+

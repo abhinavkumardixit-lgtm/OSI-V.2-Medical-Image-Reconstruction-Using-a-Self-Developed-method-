@@ -135,6 +135,9 @@ def build_3d_brain_tumor_isosurface_figure(
     3. The 3D Peritumoral Edema Zone (FLAIR hyperintensity).
     4. The 3D Surgical Centroid Reticle and Bounding Box.
     """
+    if isinstance(volume, tuple):
+        volume = volume[0]
+
     loc_meta = analyze_tumor_3d_localization(volume, t1ce_thresh=t1ce_thresh, flair_thresh=flair_thresh)
 
     d, h, w = volume.shape[1], volume.shape[2], volume.shape[3]
@@ -305,6 +308,9 @@ def build_3d_neuronavigation_figure(
     three intersecting orthogonal anatomical planes (Axial, Coronal, Sagittal) in continuous
     3D Euclidean space centered on the tumor centroid or interactive target coordinates.
     """
+    if isinstance(volume, tuple):
+        volume = volume[0]
+
     loc_meta = analyze_tumor_3d_localization(volume, t1ce_thresh=t1ce_thresh)
     cz, cy, cx = loc_meta["centroid_voxels"]
 
@@ -432,6 +438,9 @@ def build_3d_volumetric_density_figure(
     Constructs a 3D volumetric scatter/point-cloud visualization rendering the brain parenchyma
     with low alpha transparency, and rendering the tumor core & edema with high-intensity glowing points.
     """
+    if isinstance(volume, tuple):
+        volume = volume[0]
+
     loc_meta = analyze_tumor_3d_localization(volume, t1ce_thresh=t1ce_thresh, flair_thresh=flair_thresh)
 
     d, h, w = volume.shape[1], volume.shape[2], volume.shape[3]

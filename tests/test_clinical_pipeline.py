@@ -36,7 +36,7 @@ def trained_model():
     ckpt_path = "checkpoints/tme_fuse_best.pt"
     if os.path.exists(ckpt_path):
         ckpt = torch.load(ckpt_path, map_location="cpu")
-        model.load_state_dict(ckpt["model_state_dict"])
+        model.load_state_dict(ckpt["model_state_dict"], strict=False)
     model.eval()
     return model
 

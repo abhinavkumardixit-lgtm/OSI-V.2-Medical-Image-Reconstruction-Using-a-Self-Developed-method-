@@ -6,6 +6,7 @@ Provides dual-mode text embedding:
 2. Fallback / connection to OpenCLIP/BiomedCLIP if installed and cached.
 """
 
+import hashlib
 from typing import List, Optional
 import numpy as np
 import torch
@@ -69,7 +70,8 @@ class BioCLIPTextEncoder(nn.Module):
                 indices.append(self.vocab[word])
             else:
                 # Deterministic hash to token bucket for unlisted words
-                hash_id = (hash(word) % 15) + len(self.vocab)
+                bucket = int(hashlib.md5(word.encode("utf-8")).hexdigest(), 16) % 15
+                hash_id = bucket + len(self.vocab)
                 indices.append(hash_id)
 
         if not indices:

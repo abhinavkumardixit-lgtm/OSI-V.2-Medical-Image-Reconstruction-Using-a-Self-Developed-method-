@@ -6,6 +6,7 @@ and memory footprint verification.
 
 import os
 import time
+import tracemalloc
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
@@ -144,10 +145,35 @@ def compute_slice_metrics(
         raise ValueError(f"Invalid plane: {plane}")
 
 
+def measure_forward_ram_mb(
+    model: Optional[torch.nn.Module] = None,
+    tensor: Optional[torch.Tensor] = None,
+    prompt: str = "Reconstruction benchmark",
+) -> float:
+    """Measures actual peak RAM allocation in MB during model execution using tracemalloc."""
+    was_tracing = tracemalloc.is_tracing()
+    if not was_tracing:
+        tracemalloc.start()
+    tracemalloc.reset_peak()
+
+    if model is not None and tensor is not None:
+        with torch.no_grad():
+            _ = model(tensor, text_prompt=prompt)
+
+    current, peak = tracemalloc.get_traced_memory()
+    if not was_tracing:
+        tracemalloc.stop()
+
+    peak_mb = peak / (1024.0 * 1024.0)
+    return float(round(peak_mb, 2))
+
+
 def benchmark_reconstruction(
     gt_vol: np.ndarray,
     recon_vol: np.ndarray,
     latency_ms: float,
+    model: Optional[torch.nn.Module] = None,
+    input_tensor: Optional[torch.Tensor] = None,
 ) -> Dict[str, any]:
     """
     Executes full technical and clinical benchmarking on the reconstruction.
@@ -185,10 +211,19 @@ def benchmark_reconstruction(
         fidelity_rating = "SUB-OPTIMAL"
         fidelity_color = "#ef4444"  # Red
 
-    # 5. Approximate Working Memory Footprint (Forward Pass buffer estimate)
-    # 4D patch (4, 64, 64, 64) in float32 = 4 * 262144 * 4 bytes ~ 4.19 MB
-    # With forward pass feature activations across 3D convs ~ 118 MB (well within 200 MB budget)
-    est_memory_mb = float(np.round(112.5 + np.random.uniform(2.0, 6.0), 1))
+    # 5. Real RAM Footprint via Python tracemalloc
+    if model is not None and input_tensor is not None:
+        actual_memory_mb = measure_forward_ram_mb(model, input_tensor)
+    else:
+        was_tracing = tracemalloc.is_tracing()
+        if not was_tracing:
+            tracemalloc.start()
+        current, peak = tracemalloc.get_traced_memory()
+        actual_memory_mb = float(round(peak / (1024.0 * 1024.0), 2))
+        if actual_memory_mb < 0.1:
+            actual_memory_mb = float(round((gt_vol.nbytes + recon_vol.nbytes) / (1024.0 * 1024.0), 2))
+        if not was_tracing:
+            tracemalloc.stop()
 
     return {
         "overall_psnr_db": overall_psnr,
@@ -196,7 +231,7 @@ def benchmark_reconstruction(
         "mse": mse,
         "max_error": max_error,
         "latency_ms": latency_ms,
-        "memory_mb": est_memory_mb,
+        "memory_mb": actual_memory_mb,
         "fidelity_rating": fidelity_rating,
         "fidelity_color": fidelity_color,
         "per_channel_psnr": per_channel_psnr,
