@@ -10,7 +10,7 @@
       "rev": "a6276f4c6097675b1cf5ebd49b1146b735f38c02",
       "name": "mathlib",
       "manifestFile": "lake-manifest.json",
-      "inputRev": "v4.16.0",
+      "inputRev": "v4.35.0-rc2",
       "inherited": false,
       "configFile": "lakefile.lean"
     },

@@ -29,11 +29,16 @@ sources:
   - title: "TME-FUSE: A Norm-Clamped Geometric Fusion Framework for Correcting Rotationally Biased Volumetric Cell Graphs"
     type: "paper"
     id: "https://doi.org/10.5281/zenodo.21849798"
-    relationship: "original-proof"
+    relationship: "formalizes"
 
 automation:
   methods:
-    - "Interactive theorem proving using Lean 4 with automated assistance for syntax scaffolding and tactic translation."
+    - method: "agent"
+      models:
+        - "DeepMind Gemini"
+      notes: "Assisted with Lean 4 syntax translation and project configuration."
+    - method: "manual"
+      notes: "Theoretical design, mathematical theorem formulation, and verification architecture."
 
 review:
   status: "ready-for-review"

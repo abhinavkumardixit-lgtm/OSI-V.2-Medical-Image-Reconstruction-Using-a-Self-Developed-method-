@@ -6,7 +6,7 @@ package "formalization" where
   keywords := #["mathematics", "geometric-deep-learning", "lipschitz", "equivariant-gnn"]
 
 require mathlib from git
-  "https://github.com/leanprover-community/mathlib4.git" @ "v4.16.0"
+  "https://github.com/leanprover-community/mathlib4.git" @ "v4.35.0-rc2"
 
 @[default_target]
 lean_lib "Formalization" where
