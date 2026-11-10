@@ -4,9 +4,6 @@
   "theorem_names": [
     "TMEFuse.theorem_7_cumulative_displacement_bound"
   ],
-  "theorems": [
-    "TMEFuse.theorem_7_cumulative_displacement_bound"
-  ],
   "permitted_axioms": [
     "propext",
     "Quot.sound",

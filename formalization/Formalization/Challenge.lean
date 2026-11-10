@@ -1,3 +1,8 @@
+module
+
+public import Mathlib.Analysis.Normed.Group.Basic
+public import Mathlib.Data.Real.Basic
+
 /-!
 # Challenge Module: Theorem 7 (Norm-Clamped Cumulative Coordinate Displacement Bound)
 
@@ -8,9 +13,6 @@
 This module states the continuous geometric bound for an L-layer norm-clamped update sequence
 in an arbitrary real normed additive commutative group (including ℝ³ Euclidean physical space).
 -/
-
-import Mathlib.Analysis.Normed.Group.Basic
-import Mathlib.Data.Real.Basic
 
 namespace TMEFuse
 
@@ -32,4 +34,3 @@ theorem theorem_7_cumulative_displacement_bound
   sorry
 
 end TMEFuse
-

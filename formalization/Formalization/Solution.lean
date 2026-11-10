@@ -1,3 +1,10 @@
+module
+
+public import Mathlib.Analysis.Normed.Group.Basic
+public import Mathlib.Data.Real.Basic
+import Mathlib.Tactic.Linarith
+import Mathlib.Tactic.Abel
+
 /-!
 # Solution Module: Theorem 7 (Norm-Clamped Cumulative Coordinate Displacement Bound)
 
@@ -9,11 +16,6 @@ This module provides the rigorous, non-axiomatic constructive proof of Theorem 7
 It uses only the standard Lean 4 axioms (`propext`, `Classical.choice`, `Quot.sound`)
 and standard triangle inequality in normed additive groups (`norm_add_le`).
 -/
-
-import Mathlib.Analysis.Normed.Group.Basic
-import Mathlib.Data.Real.Basic
-import Mathlib.Tactic.Linarith
-import Mathlib.Tactic.Abel
 
 namespace TMEFuse
 
@@ -59,4 +61,3 @@ theorem theorem_7_cumulative_displacement_bound
     exact le_trans h_tri h_sum
 
 end TMEFuse
-
