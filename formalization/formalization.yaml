@@ -1,0 +1,60 @@
+# Palomar Registry Formalization Metadata
+# Specification: https://palomar-registry.org/how-to-submit
+
+schema_version: "1.0"
+
+project:
+  name: "osi-tme-fuse-theorem-7"
+  title: "Formal Proof of Theorem 7: Cumulative Displacement Bound under Norm-Clamping"
+  description: >
+    Lean 4 formalization of the cumulative coordinate displacement bound in multi-layer
+    norm-clamped geometric neural networks, proving ||x^(L) - x^(0)|| <= L * c for any
+    L-layer network equipped with a 1-Lipschitz norm-clamping operator of radius c.
+  license: "Apache-2.0"
+  repository: "https://github.com/abhinavkumardixit-lgtm/osi"
+  lean_project_path: "formalization"
+
+authors:
+  - name: "Abhinav Kumar Dixit"
+    maintainer: true
+    email: "abhinavkumardixit@gmail.com"
+
+classification:
+  msc2020:
+    - "68T07" # Artificial neural networks and deep learning
+    - "51M04" # Elementary Euclidean geometry
+    - "03B35" # Mechanization of proofs and logical operations
+  arxiv:
+    - "cs.LG"
+    - "math.MG"
+
+source_basis:
+  originality: "formalization-of-literature"
+  citation: >
+    Dixit, Abhinav Kumar. 'TME-FUSE: A Norm-Clamped Geometric Fusion Framework for Correcting
+    Rotationally Biased Volumetric Cell Graphs.' Zenodo Preprints (2026).
+  doi: "10.5281/zenodo.21849798"
+
+comparator:
+  challenge_module: "Formalization.Challenge"
+  solution_module: "Formalization.Solution"
+  target_theorem: "TMEFuse.theorem_7_cumulative_displacement_bound"
+
+editorial:
+  theorem_account: >
+    Theorem 7 establishes that in any multi-layer equivariant coordinate updating system
+    where successive coordinate updates are strictly constrained within a norm ball of
+    radius c (||x^(l+1) - x^(l)|| <= c), the maximum displacement of any node from its initial
+    spatial coordinates after L layers is bounded above by L * c. This continuous mathematical
+    bound guarantees geometric stability and prevents coordinate explosion under arbitrary
+    rotational updates in 3D medical volume reconstruction.
+  ai_roles: >
+    AI tools assisted with Lean 4 syntax verification, tactic translation, and Lake project scaffolding.
+  human_roles: >
+    Conceptual theorem design, pen-and-paper mathematical foundation proof, architecture specification,
+    and formal verification review.
+  fidelity_gaps: >
+    None. The formalized theorem holds generally for any real normed additive group (NormedAddCommGroup E),
+    which directly subsumes 3D Euclidean space (R^3) analyzed in the foundation paper.
+  review_status: "ready-for-review"
+

@@ -85,7 +85,7 @@ $$x_i^{(l+1)} = x_i^{(l)} + \Pi_{c, \epsilon}\left(\Delta x_i^{(l)}\right)$$
 ### 3. Theorem 7 (Cumulative Displacement Bound)
 For an $L = 3$ layer network with clamp radius $c = 2.0\,\mu\text{m}$, the maximum latent displacement of any node from its physical origin is strictly bounded:
 $$\|x_i^{(3)} - x_i^{(0)}\|_2 \le L \cdot c = 6.0\,\mu\text{m}$$
-The console verifies and reports 100.00% compliance live on every forward pass.
+The console verifies and reports 100.00% compliance live on every forward pass. The complete formal proof in Lean 4 (conforming to [Palomar Registry](https://palomar-registry.org/how-to-submit) specifications) is located in [`formalization/`](formalization/).
 
 ---
 
