@@ -1,0 +1,131 @@
+# ASTRA (Agentic Schema for Transparent Research Analysis) Specification
+# Schema validation: astra validate
+schema_version: "1.0"
+
+metadata:
+  name: "OSI-V.2 MRI Refinement"
+  version: "0.1.0"
+  description: >-
+    Volumetric 3D MRI refinement framework employing norm-clamped geometric fusion
+    to correct rotationally biased volumetric cell graphs and eliminate boundary artifacts
+    in multiparametric brain tumor neuroimaging.
+  authors:
+    - name: "Abhinav Kumar Dixit" # TODO: Verify author details
+
+container:
+  image: "python:3.12-slim"
+
+inputs:
+  raw_mni_brain_mri:
+    type: "nifti"
+    format: "nii.gz"
+    path: "data/inputs/raw_mni_brain_mri.nii.gz" # TODO: Provide actual path to MNI-registered MRI volume
+    description: "Raw multi-parametric brain MRI volume in MNI-152 standard stereotaxic space."
+
+  segmentation_masks:
+    type: "nifti"
+    format: "nii.gz"
+    path: "data/inputs/segmentation_masks.nii.gz" # TODO: Provide actual path to anatomical/tumor label masks
+    description: "Multi-class anatomical labels and peritumoral segmentation masks."
+
+decisions:
+  fusion_method:
+    label: "Geometric Feature Fusion Strategy"
+    description: "Selects the latent coordinate update and graph fusion mechanism."
+    default: "osi_v2_norm_clamped"
+    options:
+      osi_v2_norm_clamped:
+        label: "OSI-V.2 Norm-Clamped Geometric Fusion"
+        description: "1-Lipschitz continuous radial norm-clamping operator bounded by c=2.0 um."
+        prior_insight:
+          claim: "Norm-clamped coordinate updates prevent geometric explosion and eliminate boundary artifacts."
+          evidence:
+            - doi: "10.1016/j.media.2023.102876" # TODO: Verify exact publication DOI index
+              selector:
+                type: "TextQuoteSelector"
+                exact: "<!-- TODO: Verify exact quote text from DOI 10.1016/j.media.2023.102876 --> Applying continuous norm-clamping operators to coordinate updates eliminates spatial boundary artifacts and bounds coordinate displacement under rotational transformations."
+        recipe:
+          command: >-
+            python -m osi.fusion.clamped \
+              --input-volume {inputs.raw_mni_brain_mri} \
+              --input-masks {inputs.segmentation_masks} \
+              --fusion-method {decisions.fusion_method} \
+              --output-volume {output.refined_volume}
+
+      standard_fusion:
+        label: "Standard Unconstrained Graph Fusion"
+        description: "Baseline unconstrained message-passing graph neural network without norm bounds."
+        recipe:
+          command: >-
+            python -m osi.fusion.baseline \
+              --input-volume {inputs.raw_mni_brain_mri} \
+              --input-masks {inputs.segmentation_masks} \
+              --fusion-method {decisions.fusion_method} \
+              --output-volume {output.refined_volume}
+
+  refinement_iterations:
+    label: "Refinement Iteration Budget"
+    description: "Number of recursive geometric regularization iterations."
+    default: "low"
+    options:
+      low:
+        label: "Low Refinement Budget"
+        value: 10
+      high:
+        label: "High Precision Refinement Budget"
+        value: 50
+
+outputs:
+  refined_volume:
+    type: "nifti"
+    format: "nii.gz"
+    path: "data/outputs/refined_volume.nii.gz"
+    description: "Reconstructed, geometry-stabilized 3D MRI volume chained from the chosen fusion method."
+    inputs:
+      - "raw_mni_brain_mri"
+      - "segmentation_masks"
+    decisions:
+      - "fusion_method"
+    recipe:
+      command: >-
+        python -m osi.pipeline.refine \
+          --input-mri {inputs.raw_mni_brain_mri} \
+          --input-masks {inputs.segmentation_masks} \
+          --fusion-strategy {decisions.fusion_method} \
+          --output-refined {output.refined_volume}
+
+  volumetric_report:
+    type: "report"
+    format: "json"
+    path: "data/outputs/volumetric_report.json"
+    description: "Conclusive quantitative assessment containing PSNR, SSIM, and geometric bound compliance metrics."
+    inputs:
+      - "raw_mni_brain_mri"
+      - "segmentation_masks"
+    dependencies:
+      - "refined_volume"
+    decisions:
+      - "fusion_method"
+      - "refinement_iterations"
+    recipe:
+      command: >-
+        python -m osi.pipeline.evaluate \
+          --refined-volume {output.refined_volume} \
+          --masks {inputs.segmentation_masks} \
+          --strategy {decisions.fusion_method} \
+          --iterations {decisions.refinement_iterations} \
+          --output-report {output.volumetric_report}
+
+universes:
+  baseline:
+    description: "Default execution universe utilizing standard default options."
+    decisions:
+      fusion_method: "osi_v2_norm_clamped"
+      refinement_iterations: "low"
+
+  high_precision:
+    description: "High-precision evaluation universe using norm-clamped fusion with high iterations."
+    decisions:
+      fusion_method: "osi_v2_norm_clamped"
+      refinement_iterations: "high"
+

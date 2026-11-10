@@ -1,0 +1,6 @@
+name: "baseline"
+description: "Baseline universe selecting default options."
+decisions:
+  fusion_method: "osi_v2_norm_clamped"
+  refinement_iterations: "low"
+

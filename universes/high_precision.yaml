@@ -1,0 +1,6 @@
+name: "high_precision"
+description: "High precision universe selecting norm-clamped fusion with high iterations."
+decisions:
+  fusion_method: "osi_v2_norm_clamped"
+  refinement_iterations: "high"
+
