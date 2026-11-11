@@ -24,7 +24,7 @@ In an $L$-layer network where each layer update step satisfies $\|x(l+1) - x(l)\
 governed by a norm-clamping operator of radius $c \ge 0$, the cumulative physical displacement
 $\|x(L) - x(0)\|$ across all $L$ layers is bounded by $L \cdot c$.
 -/
-theorem theorem_7_cumulative_displacement_bound
+public theorem theorem_7_cumulative_displacement_bound
     (x : ℕ → E)
     (c : ℝ)
     (hc : 0 ≤ c)
