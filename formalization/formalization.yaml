@@ -3,11 +3,15 @@ version: "v0.4"
 
 project:
   name: "osi-tme-fuse-theorem-7"
-  title: "Formal Proof of Theorem 7: Cumulative Displacement Bound under Norm-Clamping"
+  title: "Formal Proof of Theorem 7: Cumulative Coordinate Trajectory Bound under Norm-Clamping"
   description: >-
-    Lean 4 formalization of the cumulative coordinate displacement bound in multi-layer
-    norm-clamped geometric neural networks, proving ||x^(L) - x^(0)|| <= L * c for any
-    L-layer network equipped with a 1-Lipschitz norm-clamping operator of radius c.
+    Formalization in Lean 4 of the geometric coordinate trajectory bound established in Theorem 7 of Dixit (2026).
+    The formalization explicitly defines the norm-clamping operator predicate IsNormClamp(Pi, c) bounding
+    step displacements by c in an arbitrary real normed additive group, and constructs the recursive coordinate
+    trajectory x^(l+1) = x^(l) + Pi(v^(l)) driven by an arbitrary sequence of unconstrained directional proposals v^(l).
+    It proves that the cumulative spatial displacement from the origin x^(0) after L recursive layers is strictly bounded
+    by L * c. This result establishes the foundational mathematical stability contract that prevents coordinate explosion
+    and boundary artifacts in geometric deep learning, without formalizing the decoupled discrete graph feature message-passing layers.
   license: "Apache-2.0"
   authors:
     - name: "Abhinav Kumar Dixit"
@@ -18,12 +22,12 @@ project:
 
 classification:
   msc2020:
-    - "68T07"
-    - "51M04"
-    - "03B35"
+    - "68T07" # Artificial neural networks and deep learning
+    - "51M04" # Elementary Euclidean geometry
+    - "03B35" # Mechanization of proofs and logical operations
   arxiv:
-    - "cs.LG"
-    - "math.MG"
+    - "cs.LG" # Machine Learning
+    - "math.MG" # Metric Geometry
 
 sources:
   - title: "TME-FUSE: A Norm-Clamped Geometric Fusion Framework for Correcting Rotationally Biased Volumetric Cell Graphs"
@@ -36,10 +40,32 @@ automation:
     - method: "agent"
       models:
         - "DeepMind Gemini"
-      notes: "Assisted with Lean 4 syntax translation and project configuration."
+      notes: "Assisted with Lean 4 syntax translation, module visibility modifiers, and project configuration."
     - method: "manual"
-      notes: "Theoretical design, mathematical theorem formulation, and verification architecture."
+      notes: "Mathematical conceptualization, foundation paper proof design, and formal verification architecture."
 
 review:
-  status: "ready-for-review"
-  notes: "Full constructive proof using standard Lean axioms without sorryAx or custom axioms."
+  status: "pre-submission-checked"
+  notes: >-
+    Pre-submission checking record:
+    1. Kernel & Comparator Audit: Challenge and Solution modules were evaluated using Lean 4 toolchain (v4.35.0-rc2) and verified against Lake Comparator specifications.
+    2. Axiom Dependency Check: Performed '#print axioms' verification confirming exclusive reliance on standard Lean core axioms (propext, Classical.choice, Quot.sound) with zero occurrences of sorryAx, Lean.ofReduceBool, or custom axioms.
+    3. Structural & Visibility Audit: Confirmed both modules employ explicit RFC-compliant 'module' headers with 'public' declarations on predicates and theorems, and verified strict line counts (<60 lines) well beneath the 1,000-line Challenge cap.
+    4. Scope Boundary Verification: Verified that the abstract precisely reflects the formalized coordinate trajectory dynamics and explicitly discloses the non-formalized feature layer boundaries.
+
+editorial:
+  theorem_account: >-
+    In equivariant geometric deep learning and 3D medical volume reconstruction (e.g. EGNNs operating on non-isotropic
+    volumetric cell graphs), unconstrained directional coordinate updates frequently suffer from numerical divergence,
+    coordinate explosion, and spatial boundary distortion artifacts. To guarantee stability, TME-FUSE (Dixit, August 2026,
+    DOI: 10.5281/zenodo.21849798) introduces a radial norm-clamping retraction operator Pi_c. Theorem 7 provides the
+    foundational mathematical guarantee: for any initial spatial point x0 and ANY sequence of unconstrained displacement
+    proposals v^(l) produced by arbitrary network weights, the recursive trajectory x^(l+1) = x^(l) + Pi(v^(l)) satisfies
+    ||x^(L) - x0|| <= L * c. This provides a deterministic, universal geometric stability bound across arbitrary multi-layer
+    architectures.
+  fidelity_gaps: >-
+    Scope and fidelity delineation: The formalization models the continuous spatial coordinate trajectory dynamics
+    governed by the norm-clamping operator Pi and proves the universal cumulative displacement bound for arbitrary
+    unconstrained layer proposal sequences. It deliberately decouples and omits the discrete node/edge feature graph
+    convolutions and MLP weight parameterizations, as the geometric bound holds universally regardless of feature space
+    behavior.
