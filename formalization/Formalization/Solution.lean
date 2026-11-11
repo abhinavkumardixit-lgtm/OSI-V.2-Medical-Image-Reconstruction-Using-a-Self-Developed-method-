@@ -33,10 +33,10 @@ public def IsNormClamp (Pi : E → E) (c : ℝ) : Prop :=
 **Norm-Clamped Coordinate Trajectory**:
 The discrete spatial trajectory of a node across $L$ layers in a geometric neural network,
 where each layer displacement proposal $\Delta x(l) \in E$ is filtered through the operator $\Pi$.
+Formulated via primitive recursion on $\mathbb{N}$ without auxiliary pattern-matching constants.
 -/
-public def trajectory (x0 : E) (Pi : E → E) (Δx : ℕ → E) : ℕ → E
-  | 0 => x0
-  | l + 1 => trajectory x0 Pi Δx l + Pi (Δx l)
+public def trajectory (x0 : E) (Pi : E → E) (Δx : ℕ → E) (L : ℕ) : E :=
+  Nat.recOn (motive := fun _ => E) L x0 (fun l acc => acc + Pi (Δx l))
 
 /--
 **Theorem 7 (Cumulative Coordinate Trajectory Bound)**:
@@ -57,12 +57,13 @@ public theorem theorem_7_cumulative_displacement_bound
     ‖trajectory x0 Pi Δx L - x0‖ ≤ (L : ℝ) * c := by
   induction L with
   | zero =>
-    dsimp [trajectory]
     have h_sub_zero : x0 - x0 = (0 : E) := sub_self x0
-    rw [h_sub_zero, norm_zero]
+    have h_traj_zero : trajectory x0 Pi Δx 0 = x0 := rfl
+    rw [h_traj_zero, h_sub_zero, norm_zero]
     simp
   | succ L ih =>
-    dsimp [trajectory]
+    have h_traj_succ : trajectory x0 Pi Δx (L + 1) = trajectory x0 Pi Δx L + Pi (Δx L) := rfl
+    rw [h_traj_succ]
     have h_split : (trajectory x0 Pi Δx L + Pi (Δx L)) - x0 = Pi (Δx L) + (trajectory x0 Pi Δx L - x0) := by
       abel
     rw [h_split]

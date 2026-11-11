@@ -2,6 +2,8 @@ module
 
 public import Mathlib.Analysis.Normed.Group.Basic
 public import Mathlib.Data.Real.Basic
+public import Mathlib.Tactic.Linarith
+public import Mathlib.Tactic.Abel
 
 /-!
 # Challenge Module: Theorem 7 (Norm-Clamped Coordinate Trajectory Stability Bound)
@@ -31,10 +33,10 @@ public def IsNormClamp (Pi : E → E) (c : ℝ) : Prop :=
 **Norm-Clamped Coordinate Trajectory**:
 The discrete spatial trajectory of a node across $L$ layers in a geometric neural network,
 where each layer displacement proposal $\Delta x(l) \in E$ is filtered through the operator $\Pi$.
+Formulated via primitive recursion on $\mathbb{N}$ without auxiliary pattern-matching constants.
 -/
-public def trajectory (x0 : E) (Pi : E → E) (Δx : ℕ → E) : ℕ → E
-  | 0 => x0
-  | l + 1 => trajectory x0 Pi Δx l + Pi (Δx l)
+public def trajectory (x0 : E) (Pi : E → E) (Δx : ℕ → E) (L : ℕ) : E :=
+  Nat.recOn (motive := fun _ => E) L x0 (fun l acc => acc + Pi (Δx l))
 
 /--
 **Theorem 7 (Cumulative Coordinate Trajectory Bound)**:
