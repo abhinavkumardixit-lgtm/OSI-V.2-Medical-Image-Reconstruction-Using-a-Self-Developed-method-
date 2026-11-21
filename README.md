@@ -7,6 +7,8 @@
 [![Memory Budget](https://img.shields.io/badge/RAM-%3C%20200%20MB%20Budget-brightgreen)](#)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+> 🏆 **Visionary Award — OSI 2026**
+
 > **Based on the mathematical foundation paper:**  
 > *"TME-FUSE: A Norm-Clamped Geometric Fusion Framework for Correcting Rotationally Biased Volumetric Cell Graphs"*  
 > **Author:** Abhinav Kumar Dixit (August 2026, `10.5281/zenodo.21849798`).
