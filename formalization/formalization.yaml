@@ -1,4 +1,3 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/mathlib-initiative/formalization.yaml/main/schema/formalization.schema.json
 version: "v0.4"
 
 project:
@@ -22,12 +21,12 @@ project:
 
 classification:
   msc2020:
-    - "68T07" # Artificial neural networks and deep learning
-    - "51M04" # Elementary Euclidean geometry
-    - "03B35" # Mechanization of proofs and logical operations
+    - "68T07"
+    - "51M04"
+    - "03B35"
   arxiv:
-    - "cs.LG" # Machine Learning
-    - "math.MG" # Metric Geometry
+    - "cs.LG"
+    - "math.MG"
 
 sources:
   - title: "TME-FUSE: A Norm-Clamped Geometric Fusion Framework for Correcting Rotationally Biased Volumetric Cell Graphs"
